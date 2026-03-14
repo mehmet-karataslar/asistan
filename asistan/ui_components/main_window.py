@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
-from tkinter import messagebox, simpledialog
+from tkinter import PhotoImage, messagebox
 
 import customtkinter as ctk
 
@@ -13,6 +12,7 @@ from ..app_launcher import close_application, launch_application
 from ..audio import ClapDetector
 from ..command_bindings import CommandBindingStore
 from ..command_parser import ParsedCommand, TurkishCommandParser
+from ..paths import db_file_path, ensure_user_plugins_seeded, icon_ico_path, icon_png_path
 from ..mic_monitor import MicrophoneMonitor
 from ..plugins import PluginManager
 from ..scheduler import TaskScheduler
@@ -44,7 +44,7 @@ class AsistanApp:
         self.root.geometry("1180x790")
         self.root.minsize(1020, 700)
 
-        self.db_path = Path(__file__).resolve().parents[2] / "asistan_data.db"
+        self.db_path = db_file_path()
         self.store = SQLiteStore(self.db_path)
         self.store.initialize()
         self.state, saved_bindings = self.store.load()
@@ -90,11 +90,9 @@ class AsistanApp:
         self.user_name_var = ctk.StringVar(value=self.state.ui.user_name)
         self.response_style_var = ctk.StringVar(value=self.state.ui.response_style)
         self.security_level_var = ctk.StringVar(value=self.state.ui.security_level)
-        self.learning_mode_var = ctk.StringVar(value="acik" if self.state.ui.learning_mode else "kapali")
         self.profile_var = ctk.StringVar(value=self.state.ui.active_profile)
-        self.learned_commands: dict[str, tuple[str, str, int]] = {}
         self._last_app_context = ""
-        self.plugin_manager = PluginManager(Path(__file__).resolve().parents[2] / "plugins")
+        self.plugin_manager = PluginManager(ensure_user_plugins_seeded())
 
         self.mic_test_status_var = ctk.StringVar(value="Hazir")
         self.mic_test_db_var = ctk.StringVar(value="dBFS: -120.0")
@@ -178,8 +176,6 @@ class AsistanApp:
         self.akilli_ozellikler_tab = AkilliOzelliklerTab(
             self.tabview.tab("Akilli Ozellikler"),
             on_refresh=self._refresh_smart_features_tab,
-            on_add_learned=self._add_learned_command,
-            on_remove_learned=self._remove_learned_command,
             on_set_routine=self._set_routine_status,
             on_reload_plugins=self._reload_plugins,
         )
@@ -256,7 +252,6 @@ class AsistanApp:
             user_name_var=self.user_name_var,
             response_style_var=self.response_style_var,
             security_level_var=self.security_level_var,
-            learning_mode_var=self.learning_mode_var,
             profile_var=self.profile_var,
             db_path_text=str(self.db_path),
             theme_values=list(THEME_PALETTES.keys()),
@@ -421,7 +416,6 @@ class AsistanApp:
             self.user_name_var,
             self.response_style_var,
             self.security_level_var,
-            self.learning_mode_var,
             self.profile_var,
         ]
         for item in vars_to_bind:
@@ -436,7 +430,7 @@ class AsistanApp:
             self.log(f"Hos geldin {self.state.ui.user_name}")
         self._populate_dashboard_content()
         self._init_custom_phrases()
-        self._init_learning_and_plugins()
+        self._init_plugins()
         self._refresh_smart_features_tab()
         self.refresh_app_list()
         self.refresh_bindings_preview()
@@ -473,43 +467,21 @@ class AsistanApp:
         }
         self.store.save_profile(pid, pid.title(), payload)
 
-    def _init_learning_and_plugins(self) -> None:
-        for phrase, action, target, value in self.store.load_learned_commands():
-            self.learned_commands[TurkishCommandParser.normalize(phrase)] = (action, target, value)
+    def _init_plugins(self) -> None:
         loaded = self.plugin_manager.load_all()
         if loaded:
             self.log(self._style_message(f"Pluginler yuklendi: {', '.join(loaded)}"))
 
     def _refresh_smart_features_tab(self) -> None:
-        learned = self.store.load_learned_commands()
         analytics = self.store.load_history_summary(limit=20)
         routines = self.store.load_routine_suggestions(limit=20)
         plugins = [getattr(p, "__name__", "plugin") for p in self.plugin_manager.plugins]
         self.akilli_ozellikler_tab.set_data(
-            learned_commands=learned,
             analytics=analytics,
             routines=routines,
             plugins=plugins,
         )
         self.akilli_ozellikler_tab.set_info("Veriler guncellendi")
-
-    def _add_learned_command(self, phrase: str, action: str, target: str, value: int) -> None:
-        if not phrase or not action:
-            self.akilli_ozellikler_tab.set_info("Cumle ve action zorunlu")
-            return
-        self.store.upsert_learned_command(phrase, action, target, value)
-        self.learned_commands[TurkishCommandParser.normalize(phrase)] = (action, target, value)
-        self.akilli_ozellikler_tab.set_info("Ogrenilen komut kaydedildi")
-        self._refresh_smart_features_tab()
-
-    def _remove_learned_command(self, phrase: str) -> None:
-        if not phrase:
-            self.akilli_ozellikler_tab.set_info("Silinecek cumleyi yazin")
-            return
-        deleted = self.store.delete_learned_command(phrase)
-        self.learned_commands.pop(TurkishCommandParser.normalize(phrase), None)
-        self.akilli_ozellikler_tab.set_info("Silindi" if deleted else "Eslesme bulunamadi")
-        self._refresh_smart_features_tab()
 
     def _set_routine_status(self, suggestion_id: int, accepted: bool) -> None:
         changed = self.store.set_routine_suggestion_status(suggestion_id, accepted)
@@ -665,7 +637,6 @@ class AsistanApp:
         self.user_name_var.set(self.state.ui.user_name)
         self.response_style_var.set(self.state.ui.response_style)
         self.security_level_var.set(self.state.ui.security_level)
-        self.learning_mode_var.set("acik" if self.state.ui.learning_mode else "kapali")
         self.profile_var.set(self.state.ui.active_profile)
 
     def sync_state(self) -> None:
@@ -702,7 +673,6 @@ class AsistanApp:
             user_name=self.user_name_var.get().strip(),
             response_style=self.response_style_var.get().strip() or "samimi",
             security_level=self.security_level_var.get().strip() or "orta",
-            learning_mode=self.learning_mode_var.get().strip() != "kapali",
             active_profile=self.profile_var.get().strip() or "varsayilan",
         )
 
@@ -1187,12 +1157,6 @@ class AsistanApp:
                     return
 
             normalized = TurkishCommandParser.normalize(transcript)
-            learned = self.learned_commands.get(normalized)
-            if learned is not None:
-                action, target, value = learned
-                self._run_parsed_command(ParsedCommand(action=action, app_name=target, value=value), "ogrenilmis")
-                return
-
             custom_binding = self.binding_store.match(transcript)
             if custom_binding is not None:
                 app_display, target, operation = custom_binding
@@ -1215,8 +1179,6 @@ class AsistanApp:
                     if normalized == "kapat" and self._last_app_context:
                         self._run_parsed_command(ParsedCommand(action="uygulama_kapat", app_name=self._last_app_context), "baglam")
                         return
-                    if self.state.ui.learning_mode:
-                        self._teach_unknown_command(transcript)
                     return
                 if parsed.delay_seconds > 0:
                     self._schedule_parsed_command(parsed)
@@ -1229,24 +1191,6 @@ class AsistanApp:
                 self.execute_action("sesli komut")
 
         self.root.after(0, _update)
-
-    def _teach_unknown_command(self, transcript: str) -> None:
-        action = simpledialog.askstring(
-            "Komut Ogren",
-            "Bu komut anlasilamadi. Hangi eylem olsun?\nOrnek: sesi_kis, wifi_kapat, uygulama_ac",
-            parent=self.root,
-        )
-        if not action:
-            return
-        target = simpledialog.askstring("Komut Ogren", "Hedef (opsiyonel):", parent=self.root) or ""
-        value_raw = simpledialog.askstring("Komut Ogren", "Deger (opsiyonel sayi):", parent=self.root) or "0"
-        try:
-            value = int(value_raw)
-        except Exception:
-            value = 0
-        self.store.upsert_learned_command(transcript, action.strip(), target.strip(), value)
-        self.learned_commands[TurkishCommandParser.normalize(transcript)] = (action.strip(), target.strip(), value)
-        self.log(self._style_message("Yeni komut ogretildi"))
 
     def _schedule_parsed_command(self, parsed: ParsedCommand) -> None:
         if parsed.action == "uygulama_ac":
@@ -1346,6 +1290,18 @@ class AsistanApp:
 
 def run() -> None:
     root = ctk.CTk()
+    try:
+        ico = icon_ico_path()
+        if ico.exists():
+            root.iconbitmap(default=str(ico))
+        else:
+            png = icon_png_path()
+            if png.exists():
+                icon = PhotoImage(file=str(png))
+                root.iconphoto(True, icon)
+                root._window_icon_ref = icon
+    except Exception:
+        pass
     app = AsistanApp(root)
     root.protocol("WM_DELETE_WINDOW", app.on_close)
     root.mainloop()

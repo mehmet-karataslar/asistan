@@ -125,16 +125,6 @@ class SQLiteStore:
             )
             conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS learned_commands (
-                    phrase TEXT PRIMARY KEY,
-                    action TEXT NOT NULL,
-                    target TEXT NOT NULL DEFAULT '',
-                    value INTEGER NOT NULL DEFAULT 0
-                )
-                """
-            )
-            conn.execute(
-                """
                 CREATE TABLE IF NOT EXISTS command_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     ts TEXT NOT NULL,
@@ -295,28 +285,6 @@ class SQLiteStore:
             )
             conn.commit()
 
-    def load_learned_commands(self) -> list[tuple[str, str, str, int]]:
-        with sqlite3.connect(self.db_path) as conn:
-            rows = conn.execute(
-                "SELECT phrase, action, target, value FROM learned_commands ORDER BY phrase COLLATE NOCASE"
-            ).fetchall()
-        return [(str(p), str(a), str(t), int(v)) for p, a, t, v in rows]
-
-    def upsert_learned_command(self, phrase: str, action: str, target: str = "", value: int = 0) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                "INSERT INTO learned_commands(phrase, action, target, value) VALUES(?, ?, ?, ?) "
-                "ON CONFLICT(phrase) DO UPDATE SET action=excluded.action, target=excluded.target, value=excluded.value",
-                (phrase, action, target, int(value)),
-            )
-            conn.commit()
-
-    def delete_learned_command(self, phrase: str) -> int:
-        with sqlite3.connect(self.db_path) as conn:
-            cur = conn.execute("DELETE FROM learned_commands WHERE phrase = ?", (phrase,))
-            conn.commit()
-            return int(cur.rowcount or 0)
-
     def save_history(self, transcript: str, action: str, success: bool, source: str = "") -> None:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
@@ -405,7 +373,6 @@ class SQLiteStore:
             "ui.user_name": state.ui.user_name,
             "ui.response_style": state.ui.response_style,
             "ui.security_level": state.ui.security_level,
-            "ui.learning_mode": "1" if state.ui.learning_mode else "0",
             "ui.active_profile": state.ui.active_profile,
         }
 
@@ -446,7 +413,6 @@ class SQLiteStore:
             user_name=src.get("ui.user_name", defaults.ui.user_name),
             response_style=src.get("ui.response_style", defaults.ui.response_style),
             security_level=src.get("ui.security_level", defaults.ui.security_level),
-            learning_mode=src.get("ui.learning_mode", "1") not in {"0", "false", "False"},
             active_profile=src.get("ui.active_profile", defaults.ui.active_profile),
         )
 

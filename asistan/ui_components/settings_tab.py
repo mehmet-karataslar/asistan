@@ -12,7 +12,6 @@ class SettingsTab:
         user_name_var: ctk.StringVar,
         response_style_var: ctk.StringVar,
         security_level_var: ctk.StringVar,
-        learning_mode_var: ctk.StringVar,
         profile_var: ctk.StringVar,
         db_path_text: str,
         theme_values: list[str],
@@ -65,21 +64,13 @@ class SettingsTab:
         )
         self.security_level_menu.grid(row=4, column=1, sticky="ew", padx=10, pady=4)
 
-        ctk.CTkLabel(form, text="Ogrenme Modu").grid(row=5, column=0, sticky="w", padx=10, pady=4)
-        self.learning_mode_menu = ctk.CTkOptionMenu(
-            form,
-            values=["acik", "kapali"],
-            variable=learning_mode_var,
-        )
-        self.learning_mode_menu.grid(row=5, column=1, sticky="ew", padx=10, pady=4)
-
-        ctk.CTkLabel(form, text="Aktif Profil").grid(row=6, column=0, sticky="w", padx=10, pady=4)
+        ctk.CTkLabel(form, text="Aktif Profil").grid(row=5, column=0, sticky="w", padx=10, pady=4)
         self.profile_menu = ctk.CTkOptionMenu(
             form,
             values=["varsayilan", "ev", "ofis", "oyun", "toplanti"],
             variable=profile_var,
         )
-        self.profile_menu.grid(row=6, column=1, sticky="ew", padx=10, pady=(4, 10))
+        self.profile_menu.grid(row=5, column=1, sticky="ew", padx=10, pady=(4, 10))
 
         form.grid_columnconfigure(1, weight=1)
 
@@ -106,7 +97,7 @@ class SettingsTab:
             button_hover_color=palette["accent_hover"],
             text_color=palette["text"],
         )
-        for menu in (self.response_style_menu, self.security_level_menu, self.learning_mode_menu, self.profile_menu):
+        for menu in (self.response_style_menu, self.security_level_menu, self.profile_menu):
             menu.configure(
                 fg_color=palette["surface_alt"],
                 button_color=palette["accent"],
