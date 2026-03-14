@@ -3,3 +3,11 @@ __pycache__/
 *.py[cod]
 *.db
 *.sqlite3
+dist/
+build/
+*.egg-info/
+*.egg
+*.log
+*.bak
+*.swp
+dist_installer/
