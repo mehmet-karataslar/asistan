@@ -15,6 +15,7 @@ class SystemActions:
         self.logger = logger
         self.status_setter = status_setter
         self.scenario_steps = self._default_scenarios()
+        self._undo_stack: list[tuple[str, str, int]] = []
 
     def _default_scenarios(self) -> dict[str, list[dict[str, object]]]:
         return {
@@ -161,15 +162,19 @@ class SystemActions:
             return
         if action == "wifi_ac":
             self.set_wifi(True, source)
+            self._undo_stack.append(("wifi_kapat", "", 0))
             return
         if action == "wifi_kapat":
             self.set_wifi(False, source)
+            self._undo_stack.append(("wifi_ac", "", 0))
             return
         if action == "bluetooth_ac":
             self.set_bluetooth(True, source)
+            self._undo_stack.append(("bluetooth_kapat", "", 0))
             return
         if action == "bluetooth_kapat":
             self.set_bluetooth(False, source)
+            self._undo_stack.append(("bluetooth_ac", "", 0))
             return
         if action == "senaryo_calistir":
             self.run_scenario(target, source)
@@ -315,6 +320,12 @@ class SystemActions:
                 value = 0
             self.execute_named_action(action_name, f"senaryo:{scenario_name}", target=target, value=value)
         self.status_setter(f"Senaryo tamamlandi: {scenario_name}")
+
+    def undo_last_action(self, source: str = "undo") -> None:
+        if not self._undo_stack:
+            raise RuntimeError("Geri alinabilecek bir eylem yok")
+        action, target, value = self._undo_stack.pop()
+        self.execute_named_action(action, source, target=target, value=value)
 
     def control_named_window(self, action: str, target: str, source: str) -> None:
         self.logger(f"Pencere eylemi calisiyor ({source}): {target} -> {action}")

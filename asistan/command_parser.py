@@ -22,9 +22,6 @@ class TurkishCommandParser:
         "gece modu": "gece_modu",
     }
 
-    _CUSTOM_PHRASES: dict[str, tuple[str, ...]] = {}
-    _CUSTOM_SCENARIOS: dict[str, str] = {}
-
     _UNITS = {
         "saniye": 1,
         "sn": 1,
@@ -33,52 +30,8 @@ class TurkishCommandParser:
         "saat": 3600,
     }
 
-    # ─ Kulınıcı tarafından özelleştirilebilir ifadeler ─────────────────────────────────
-    _custom_phrases: dict[str, str] = {}    # komut_id -> normalize edilmiş ifade
-    _custom_scenarios: list[dict] = []       # senaryo dict listesi
-
-    # Numerik değer gerektiren komutlar
-    _ACTIONS_WITH_VALUE: frozenset[str] = frozenset({
-        "sesi_ac", "sesi_kis", "parlaklik_arttir", "parlaklik_azalt"
-    })
-    _ACTION_DEFAULT_VALUES: dict[str, int] = {
-        "sesi_ac": 6, "sesi_kis": 6,
-        "parlaklik_arttir": 15, "parlaklik_azalt": 15,
-    }
-
-    @classmethod
-    def set_custom_phrases(cls, phrases: dict[str, str]) -> None:
-        """Normalize ederek sakla – main_window DB yüklemesi sırasında çağrılır."""
-        cls._custom_phrases = {
-            k: cls.normalize(v) for k, v in phrases.items() if v.strip()
-        }
-
-    @classmethod
-    def set_custom_scenarios(cls, scenarios: list[dict]) -> None:
-        """Senaryo listesini sakla."""
-        cls._custom_scenarios = list(scenarios)
-
-    @classmethod
-    def _check_custom_scenarios(cls, value: str, delay: int) -> "ParsedCommand | None":
-        for sc in cls._custom_scenarios:
-            phrase = cls.normalize(sc.get("trigger_phrase", ""))
-            if phrase and phrase in value:
-                return ParsedCommand(
-                    action="senaryo_calistir",
-                    app_name=sc["id"],
-                    delay_seconds=delay,
-                )
-        return None
-
-    @classmethod
-    def _check_custom_phrases(cls, value: str, delay: int) -> "ParsedCommand | None":
-        for command_id, phrase in cls._custom_phrases.items():
-            if phrase and phrase in value:
-                if command_id in cls._ACTIONS_WITH_VALUE:
-                    amt = cls._extract_amount(value, cls._ACTION_DEFAULT_VALUES.get(command_id, 0))
-                    return ParsedCommand(action=command_id, value=amt, delay_seconds=delay)
-                return ParsedCommand(action=command_id, delay_seconds=delay)
-        return None
+    _CUSTOM_PHRASES: dict[str, tuple[str, ...]] = {}
+    _CUSTOM_SCENARIOS: dict[str, str] = {}
 
     @staticmethod
     def normalize(text: str) -> str:
@@ -120,26 +73,14 @@ class TurkishCommandParser:
     @classmethod
     def parse(cls, text: str) -> ParsedCommand:
         value = cls.normalize(text)
-
         delay = cls._parse_delay(value)
 
-        # ─ Önce özel senaryo ifadelerini kontrol et ──────────────────────────────────
-        if cls._custom_scenarios:
-            custom_sc = cls._check_custom_scenarios(value, delay)
-            if custom_sc:
-                return custom_sc
-        else:
-            scenario = cls._parse_scenario(value)
-            if scenario:
-                return ParsedCommand(action="senaryo_calistir", app_name=scenario, delay_seconds=delay)
+        if "geri al" in value or "onceki islemi geri al" in value:
+            return ParsedCommand(action="geri_al", delay_seconds=delay)
 
-        # ─ Özel komut ifade kontrolü ──────────────────────────────────────────
-        if cls._custom_phrases:
-            custom_cmd = cls._check_custom_phrases(value, delay)
-            if custom_cmd:
-                return custom_cmd
-
-        # ─ Varsayılan ayrıştırma mantığı ─────────────────────────────────────────
+        scenario = cls._parse_scenario(value)
+        if scenario:
+            return ParsedCommand(action="senaryo_calistir", app_name=scenario, delay_seconds=delay)
 
         if "yeniden baslat" in value or "restart" in value:
             return ParsedCommand(action="yeniden_baslat", delay_seconds=delay)
@@ -210,7 +151,6 @@ class TurkishCommandParser:
 
     @staticmethod
     def _parse_open_app(value: str) -> str:
-        # ornek: "chrome ac" "spotify ac" "discord ac"
         match = re.search(r"([a-z0-9_.\-']+)\s+ac", value)
         if not match:
             return ""
@@ -218,7 +158,6 @@ class TurkishCommandParser:
 
     @staticmethod
     def _parse_close_app(value: str) -> str:
-        # ornek: "chrome kapat" "discord uygulamasini kapat"
         match = re.search(r"([a-z0-9_.\-']+)\s+(uygulamasini\s+)?kapat", value)
         if not match:
             return ""
@@ -239,6 +178,10 @@ class TurkishCommandParser:
 
     @staticmethod
     def _extract_amount(value: str, default: int) -> int:
+        if "biraz" in value:
+            return max(2, default // 2)
+        if "cok" in value:
+            return max(default + 6, 12)
         match = re.search(r"(\d+)", value)
         if not match:
             return default
@@ -248,9 +191,9 @@ class TurkishCommandParser:
     def _parse_volume(cls, value: str) -> tuple[str, int] | None:
         if cls._contains_any(value, "sesi_sessize_al", "sessize al", "sesi kapat"):
             return "sesi_sessize_al", 0
-        if cls._contains_any(value, "sesi_kis", "sesi azalt", "ses kis", "sesi kis"):
+        if cls._contains_any(value, "sesi_kis", "sesi azalt", "ses kis", "sesi kis") or ("ses" in value and any(k in value for k in ("kis", "azalt"))):
             return "sesi_kis", cls._extract_amount(value, 6)
-        if cls._contains_any(value, "sesi_ac", "sesi arttir", "ses ac", "sesi yukelt"):
+        if cls._contains_any(value, "sesi_ac", "sesi arttir", "ses ac", "sesi yukelt") or ("ses" in value and any(k in value for k in ("ac", "arttir", "yukselt"))):
             return "sesi_ac", cls._extract_amount(value, 6)
         return None
 

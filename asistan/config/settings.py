@@ -90,6 +90,10 @@ class VoiceSettings:
 class UiSettings:
     theme: str = "Neon Gece"
     user_name: str = ""
+    response_style: str = "samimi"
+    security_level: str = "orta"
+    learning_mode: bool = True
+    active_profile: str = "varsayilan"
 
 
 @dataclass

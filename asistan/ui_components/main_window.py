@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog
 
 import customtkinter as ctk
 
@@ -14,6 +14,7 @@ from ..audio import ClapDetector
 from ..command_bindings import CommandBindingStore
 from ..command_parser import ParsedCommand, TurkishCommandParser
 from ..mic_monitor import MicrophoneMonitor
+from ..plugins import PluginManager
 from ..scheduler import TaskScheduler
 from ..config.sqlite_store import SQLiteStore
 from ..settings import ActionSettings, AppState, DetectionSettings, UiSettings, VoiceSettings
@@ -85,11 +86,21 @@ class AsistanApp:
         self.custom_command_var = ctk.StringVar(value=self.state.action.custom_command)
         self.theme_var = ctk.StringVar(value=self.state.ui.theme)
         self.user_name_var = ctk.StringVar(value=self.state.ui.user_name)
+        self.response_style_var = ctk.StringVar(value=self.state.ui.response_style)
+        self.security_level_var = ctk.StringVar(value=self.state.ui.security_level)
+        self.learning_mode_var = ctk.StringVar(value="acik" if self.state.ui.learning_mode else "kapali")
+        self.profile_var = ctk.StringVar(value=self.state.ui.active_profile)
+        self.learned_commands: dict[str, tuple[str, str, int]] = {}
+        self._last_app_context = ""
+        self.plugin_manager = PluginManager(Path(__file__).resolve().parents[2] / "plugins")
 
         self.mic_test_status_var = ctk.StringVar(value="Hazir")
         self.mic_test_db_var = ctk.StringVar(value="dBFS: -120.0")
         self.mic_test_peak_var = ctk.StringVar(value="Peak: 0.00")
         self.mic_test_rate_var = ctk.StringVar(value="Ornekleme: -")
+        self._mic_test_db_samples: list[float] = []
+        self._mic_test_peak_samples: list[float] = []
+        self._mic_test_started_at: float = 0.0
 
         self._build_ui()
         self._apply_selected_theme(force=True)
@@ -131,38 +142,8 @@ class AsistanApp:
         self.bindings_tab_frame = self.tabview.tab("Komut Esleme")
         self.settings_tab_frame = self.tabview.tab("Ayarlar")
 
-        controls = self._card(self.main_tab)
-        controls.pack(fill="x", pady=(6, 10), padx=6)
-
-        self.start_btn = ctk.CTkButton(controls, text="Devreye Al", command=self.start_monitoring, width=170)
-        self.start_btn.pack(side="left", padx=10, pady=10)
-        self.stop_btn = ctk.CTkButton(controls, text="Dinlemeyi Durdur", command=self.stop_monitoring, width=170, state="disabled")
-        self.stop_btn.pack(side="left", padx=10, pady=10)
-        self.test_btn = ctk.CTkButton(controls, text="Secili Eylemi Test Et", command=self.test_selected_action, width=200)
-        self.test_btn.pack(side="left", padx=10, pady=10)
-
-        grid = ctk.CTkFrame(self.main_tab, fg_color="transparent")
-        grid.pack(fill="both", expand=True, padx=6, pady=(0, 6))
-        grid.grid_columnconfigure(0, weight=3)
-        grid.grid_columnconfigure(1, weight=2)
-        grid.grid_rowconfigure(0, weight=1)
-        grid.grid_rowconfigure(1, weight=1)
-
-        left_top = self._card(grid)
-        left_top.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 6))
-        self._build_trigger_card(left_top)
-
-        right_top = self._card(grid)
-        right_top.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=(0, 6))
-        self._build_action_card(right_top)
-
-        left_bottom = self._card(grid)
-        left_bottom.grid(row=1, column=0, sticky="nsew", padx=(0, 6), pady=(6, 0))
-        self._build_clap_card(left_bottom)
-
-        right_bottom = self._card(grid)
-        right_bottom.grid(row=1, column=1, sticky="nsew", padx=(6, 0), pady=(6, 0))
-        self._build_log_card(right_bottom)
+        self._build_dashboard_tab(self.main_tab)
+        self._build_settings_content()
 
         self.bindings_tab = CommandBindingsTab(
             self.bindings_tab_frame,
@@ -170,15 +151,6 @@ class AsistanApp:
             on_add_binding=self.add_phrase_binding,
             on_remove_binding=self.remove_phrase_binding,
             on_refresh_bindings=self.refresh_bindings_preview,
-        )
-
-        self.settings_tab = SettingsTab(
-            self.settings_tab_frame,
-            theme_var=self.theme_var,
-            user_name_var=self.user_name_var,
-            db_path_text=str(self.db_path),
-            theme_values=list(THEME_PALETTES.keys()),
-            on_save_click=self.save_all_to_db,
         )
 
         self.sistem_kontrol_tab_obj = SistemKontrolTab(
@@ -199,6 +171,104 @@ class AsistanApp:
             on_save=self._save_window_phrases,
             on_named_window_action=self._test_named_window_action,
         )
+
+    def _build_dashboard_tab(self, parent) -> None:
+        hero = self._card(parent)
+        hero.pack(fill="x", pady=(8, 10), padx=6)
+
+        ctk.CTkLabel(
+            hero,
+            text="Komut Merkezi",
+            font=ctk.CTkFont(size=26, weight="bold"),
+        ).pack(anchor="w", padx=14, pady=(12, 2))
+        ctk.CTkLabel(
+            hero,
+            text="Asistanin tum yeteneklerini buradan gorebilirsiniz. Ayarlamalar Ayarlar sekmesinde.",
+            text_color=self.palette["muted"],
+        ).pack(anchor="w", padx=14, pady=(0, 10))
+
+        quick = ctk.CTkFrame(hero, fg_color="transparent")
+        quick.pack(fill="x", padx=12, pady=(0, 10))
+
+        self.start_btn = ctk.CTkButton(quick, text="Devreye Al", command=self.start_monitoring, width=170)
+        self.start_btn.pack(side="left", padx=(2, 8), pady=2)
+        self.stop_btn = ctk.CTkButton(quick, text="Dinlemeyi Durdur", command=self.stop_monitoring, width=170, state="disabled")
+        self.stop_btn.pack(side="left", padx=8, pady=2)
+        self.test_btn = ctk.CTkButton(quick, text="Secili Eylemi Test Et", command=self.test_selected_action, width=200)
+        self.test_btn.pack(side="left", padx=8, pady=2)
+        self.status_chip = ctk.CTkLabel(quick, textvariable=self.status_var, width=220, anchor="center")
+        self.status_chip.pack(side="right", padx=(8, 2), pady=2)
+
+        grid = ctk.CTkFrame(parent, fg_color="transparent")
+        grid.pack(fill="both", expand=True, padx=6, pady=(0, 6))
+        grid.grid_columnconfigure(0, weight=1)
+        grid.grid_columnconfigure(1, weight=1)
+        grid.grid_rowconfigure(0, weight=1)
+        grid.grid_rowconfigure(1, weight=1)
+
+        commands = self._card(grid)
+        commands.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 6))
+        self._section_title(commands, "Populer Komutlar")
+        self.command_showcase = ctk.CTkTextbox(commands, height=200)
+        self.command_showcase.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self.command_showcase.configure(state="disabled")
+
+        scenarios = self._card(grid)
+        scenarios.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=(0, 6))
+        self._section_title(scenarios, "Hazir Senaryolar")
+        self.scenario_showcase = ctk.CTkTextbox(scenarios, height=200)
+        self.scenario_showcase.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self.scenario_showcase.configure(state="disabled")
+
+        tips = self._card(grid)
+        tips.grid(row=1, column=0, sticky="nsew", padx=(0, 6), pady=(6, 0))
+        self._section_title(tips, "Neler Yapabilir?")
+        self.tips_showcase = ctk.CTkTextbox(tips, height=200)
+        self.tips_showcase.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self.tips_showcase.configure(state="disabled")
+
+        log_card = self._card(grid)
+        log_card.grid(row=1, column=1, sticky="nsew", padx=(6, 0), pady=(6, 0))
+        self._build_log_card(log_card)
+
+    def _build_settings_content(self) -> None:
+        settings_scroll = ctk.CTkScrollableFrame(self.settings_tab_frame)
+        settings_scroll.pack(fill="both", expand=True)
+
+        core_settings = ctk.CTkFrame(settings_scroll, fg_color="transparent")
+        core_settings.pack(fill="x", padx=6, pady=(6, 8))
+
+        self.settings_tab = SettingsTab(
+            core_settings,
+            theme_var=self.theme_var,
+            user_name_var=self.user_name_var,
+            response_style_var=self.response_style_var,
+            security_level_var=self.security_level_var,
+            learning_mode_var=self.learning_mode_var,
+            profile_var=self.profile_var,
+            db_path_text=str(self.db_path),
+            theme_values=list(THEME_PALETTES.keys()),
+            on_save_click=self.save_all_to_db,
+        )
+
+        settings_grid = ctk.CTkFrame(settings_scroll, fg_color="transparent")
+        settings_grid.pack(fill="both", expand=True, padx=6, pady=(0, 6))
+        settings_grid.grid_columnconfigure(0, weight=3)
+        settings_grid.grid_columnconfigure(1, weight=2)
+        settings_grid.grid_rowconfigure(0, weight=1)
+        settings_grid.grid_rowconfigure(1, weight=1)
+
+        left_top = self._card(settings_grid)
+        left_top.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 6))
+        self._build_trigger_card(left_top)
+
+        right_top = self._card(settings_grid)
+        right_top.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=(0, 6))
+        self._build_action_card(right_top)
+
+        left_bottom = self._card(settings_grid)
+        left_bottom.grid(row=1, column=0, sticky="nsew", padx=(0, 6), pady=(6, 0))
+        self._build_clap_card(left_bottom)
 
     def _card(self, parent) -> ctk.CTkFrame:
         card = ctk.CTkFrame(parent, fg_color=self.palette["surface"], corner_radius=16, border_width=1, border_color=self.palette["surface_alt"])
@@ -332,19 +402,154 @@ class AsistanApp:
             self.custom_command_var,
             self.theme_var,
             self.user_name_var,
+            self.response_style_var,
+            self.security_level_var,
+            self.learning_mode_var,
+            self.profile_var,
         ]
         for item in vars_to_bind:
             item.trace_add("write", lambda *_: self.sync_state())
 
     def _set_initial_messages(self) -> None:
+        self._load_active_profile_snapshot()
         self.log("Asistan baslatildi.")
         self.log("Komut Esleme sekmesinden uygulama + cumle baglayabilirsiniz.")
         self.log(f"SQLite dosyasi: {self.db_path}")
         if self.state.ui.user_name:
             self.log(f"Hos geldin {self.state.ui.user_name}")
+        self._populate_dashboard_content()
         self._init_custom_phrases()
+        self._init_learning_and_plugins()
         self.refresh_app_list()
         self.refresh_bindings_preview()
+
+    def _load_active_profile_snapshot(self) -> None:
+        pid = self.state.ui.active_profile.strip()
+        if not pid:
+            return
+        for profile_id, _name, payload in self.store.load_profiles():
+            if profile_id != pid:
+                continue
+            try:
+                detection = payload.get("detection") or {}
+                voice = payload.get("voice") or {}
+                self.state.detection.mode = str(detection.get("mode", self.state.detection.mode))
+                self.state.voice.keyword = str(voice.get("keyword", self.state.voice.keyword))
+                self.state.voice.command_mode = str(voice.get("command_mode", self.state.voice.command_mode))
+            except Exception:
+                pass
+            self._hydrate_ui_from_state()
+            self.sync_state()
+            return
+
+    def _save_current_profile_snapshot(self) -> None:
+        pid = self.state.ui.active_profile.strip() or "varsayilan"
+        payload = {
+            "detection": {
+                "mode": self.state.detection.mode,
+            },
+            "voice": {
+                "keyword": self.state.voice.keyword,
+                "command_mode": self.state.voice.command_mode,
+            },
+        }
+        self.store.save_profile(pid, pid.title(), payload)
+
+    def _init_learning_and_plugins(self) -> None:
+        for phrase, action, target, value in self.store.load_learned_commands():
+            self.learned_commands[TurkishCommandParser.normalize(phrase)] = (action, target, value)
+        loaded = self.plugin_manager.load_all()
+        if loaded:
+            self.log(self._style_message(f"Pluginler yuklendi: {', '.join(loaded)}"))
+
+    def _style_message(self, message: str) -> str:
+        style = self.state.ui.response_style
+        if style == "resmi":
+            return f"[Bilgi] {message}"
+        if style == "kisa":
+            return message.split(".")[0]
+        if style == "detayli":
+            return f"Detay: {message}"
+        return message
+
+    def _log_history(self, transcript: str, action: str, success: bool, source: str) -> None:
+        try:
+            self.store.save_history(transcript, action, success, source)
+        except Exception:
+            pass
+
+    def _should_confirm_risky(self, action: str) -> bool:
+        return self.state.ui.security_level == "yuksek" and action in {"kapat", "yeniden_baslat", "wifi_kapat", "bluetooth_kapat"}
+
+    def _maybe_suggest_routine(self) -> None:
+        try:
+            top = self.store.load_history_summary(limit=5)
+            if not top:
+                return
+            action, total, _ok = top[0]
+            if total >= 7:
+                self.store.save_routine_suggestion(f"{action} eylemi sik kullaniliyor. Otomatik rutin onerisi.", accepted=False)
+        except Exception:
+            pass
+
+    def _populate_dashboard_content(self) -> None:
+        popular_lines = [
+            "- chrome ac: Uygulamayi baslatir",
+            "- discord kapat: Uygulamayi kapatir",
+            "- sesi kis 5: Ses seviyesini dusurur",
+            "- parlakligi arttir 20: Ekrani aydinlatir",
+            "- wifi kapat: Kablosuz baglantiyi kapatir",
+            "- bluetooth ac: Bluetooth'u aktif eder",
+            "- ekrani kilitle: Aninda kilit ekranina gecer",
+            "- ekran goruntusu al: PNG ekran goruntusu kaydeder",
+            "- aktif pencereyi sola yasla: Pencereyi sol yariya alir",
+        ]
+        scenario_lines = [
+            "Ders Modu: Sessize al + parlakligi dusur + tum pencereleri kucult",
+            "Is Modu: WiFi ac + parlakligi arttir + sesi kis",
+            "Oyun Modu: Parlakligi arttir + sesi ac",
+            "Toplanti Modu: Sessize al + parlakligi biraz arttir",
+            "Gece Modu: Parlakligi azalt + sesi kis",
+            "",
+            "Not: Senaryolar sekmesinden adimlari ve tetikleyici cumleyi degistirebilirsin.",
+        ]
+        tips_lines = [
+            "1) Once Ayarlar sekmesinden tetikleme ve ses motorunu sec.",
+            "2) Komut Esleme sekmesinden uygulama-ac/kapat cumleleri ekle.",
+            "3) Sistem Kontrolu sekmesinde komut ifadelerini kisilestir.",
+            "4) Pencere Yonetimi sekmesinde aktif ve isimli pencere kontrollerini test et.",
+            "5) Senaryolar sekmesinden cok adimli otomasyonlar kur.",
+            "",
+            "Ornek cumle: yarim saat sonra bilgisayari kapat",
+        ]
+
+        try:
+            summary = self.store.load_history_summary(limit=5)
+            if summary:
+                tips_lines.append("")
+                tips_lines.append("Son Kullanim Analitigi:")
+                for action, total, ok in summary:
+                    rate = int((ok / total) * 100) if total else 0
+                    tips_lines.append(f"- {action}: {total} kez, %{rate} basari")
+            suggestions = self.store.load_routine_suggestions(limit=3)
+            if suggestions:
+                tips_lines.append("")
+                tips_lines.append("Rutin Onerileri:")
+                for _sid, rule, accepted in suggestions:
+                    state = "kabul" if accepted else "beklemede"
+                    tips_lines.append(f"- {rule} ({state})")
+        except Exception:
+            pass
+
+        for widget, lines in (
+            (self.command_showcase, popular_lines),
+            (self.scenario_showcase, scenario_lines),
+            (self.tips_showcase, tips_lines),
+        ):
+            widget.configure(state="normal")
+            widget.delete("1.0", "end")
+            widget.insert("end", "\n".join(lines))
+            widget.configure(state="disabled")
 
     def _to_float(self, raw: str, fallback: float) -> float:
         try:
@@ -396,6 +601,10 @@ class AsistanApp:
             self.state.ui.theme = "Neon Gece"
         self.theme_var.set(self.state.ui.theme)
         self.user_name_var.set(self.state.ui.user_name)
+        self.response_style_var.set(self.state.ui.response_style)
+        self.security_level_var.set(self.state.ui.security_level)
+        self.learning_mode_var.set("acik" if self.state.ui.learning_mode else "kapali")
+        self.profile_var.set(self.state.ui.active_profile)
 
     def sync_state(self) -> None:
         self.state.detection = DetectionSettings(
@@ -428,6 +637,10 @@ class AsistanApp:
         self.state.ui = UiSettings(
             theme=selected_theme,
             user_name=self.user_name_var.get().strip(),
+            response_style=self.response_style_var.get().strip() or "samimi",
+            security_level=self.security_level_var.get().strip() or "orta",
+            learning_mode=self.learning_mode_var.get().strip() != "kapali",
+            active_profile=self.profile_var.get().strip() or "varsayilan",
         )
 
         self.clap_detector.update_settings(self.state.detection)
@@ -476,6 +689,7 @@ class AsistanApp:
         self._safe_config(self.start_btn, fg_color=self.palette["success"], hover_color=self.palette["success_hover"], text_color=self.palette["text"])
         self._safe_config(self.stop_btn, fg_color=self.palette["danger"], hover_color=self.palette["danger_hover"], text_color=self.palette["text"])
         self._safe_config(self.test_btn, fg_color=self.palette["accent"], hover_color=self.palette["accent_hover"], text_color=self.palette["text"])
+        self._safe_config(self.status_chip, fg_color=self.palette["surface_alt"], text_color=self.palette["text"], corner_radius=10)
 
         for menu in (
             self.mode_menu,
@@ -511,6 +725,9 @@ class AsistanApp:
 
         self._safe_config(self.status_label, text_color=self.palette["text"])
         self._safe_config(self.log_text, fg_color=self.palette["input"], text_color=self.palette["text"], border_color=self.palette["surface_alt"])
+        self._safe_config(self.command_showcase, fg_color=self.palette["input"], text_color=self.palette["text"], border_color=self.palette["surface_alt"])
+        self._safe_config(self.scenario_showcase, fg_color=self.palette["input"], text_color=self.palette["text"], border_color=self.palette["surface_alt"])
+        self._safe_config(self.tips_showcase, fg_color=self.palette["input"], text_color=self.palette["text"], border_color=self.palette["surface_alt"])
         self._safe_config(self.trigger_help_label, text_color=self.palette["muted"])
         self._safe_config(self.action_help_label, text_color=self.palette["muted"])
 
@@ -708,6 +925,7 @@ class AsistanApp:
         try:
             self.store.save_settings(self.state)
             self.store.save_bindings(self.binding_store.all_items())
+            self._save_current_profile_snapshot()
             self.settings_tab.set_info("Ayarlar ve komutlar kaydedildi")
             self.log("SQLite: ayarlar ve komut eslemeleri kaydedildi")
         except Exception as exc:
@@ -738,7 +956,7 @@ class AsistanApp:
     def start_monitoring(self) -> None:
         self.sync_state()
         if self.mic_monitor.running:
-            self._stop_mic_test_ui()
+            self._stop_mic_test_ui(prompt_save=False)
             self.log("Mikrofon testi durduruldu.")
 
         try:
@@ -788,9 +1006,16 @@ class AsistanApp:
         self.mic_test_button.configure(text="Mikrofon Testini Durdur")
         self.mic_test_rate_var.set(f"Ornekleme: {samplerate} Hz")
         self.mic_test_status_var.set("Canli dinleme aktif")
+        self._mic_test_db_samples.clear()
+        self._mic_test_peak_samples.clear()
+        self._mic_test_started_at = time.time()
         self._schedule_mic_poll()
 
-    def _stop_mic_test_ui(self) -> None:
+    def _stop_mic_test_ui(self, prompt_save: bool = True) -> None:
+        avg_db = self._average_or_default(self._mic_test_db_samples, -120.0)
+        avg_peak = self._average_or_default(self._mic_test_peak_samples, 0.0)
+        duration = max(0.0, time.time() - self._mic_test_started_at)
+
         self.mic_monitor.stop()
         if self.mic_test_after_id is not None:
             self.root.after_cancel(self.mic_test_after_id)
@@ -800,6 +1025,13 @@ class AsistanApp:
         self.mic_test_db_var.set("dBFS: -120.0")
         self.mic_test_peak_var.set("Peak: 0.00")
         self.mic_test_bar.set(0.0)
+
+        if prompt_save and duration >= 1.5 and self._mic_test_db_samples:
+            self._ask_save_mic_defaults(avg_db, avg_peak)
+
+        self._mic_test_db_samples.clear()
+        self._mic_test_peak_samples.clear()
+        self._mic_test_started_at = 0.0
 
     def _schedule_mic_poll(self) -> None:
         self.mic_test_after_id = self.root.after(120, self._poll_mic_stats)
@@ -816,7 +1048,51 @@ class AsistanApp:
         self.mic_test_peak_var.set(f"Peak: {stats.peak:.2f}")
         self.mic_test_status_var.set("Canli ses algilandi" if dbfs > -45.0 else "Dusuk ses / sessizlik")
 
+        self._mic_test_db_samples.append(dbfs)
+        self._mic_test_peak_samples.append(max(0.0, min(1.0, float(stats.peak))))
+        if len(self._mic_test_db_samples) > 1800:
+            self._mic_test_db_samples = self._mic_test_db_samples[-1800:]
+        if len(self._mic_test_peak_samples) > 1800:
+            self._mic_test_peak_samples = self._mic_test_peak_samples[-1800:]
+
         self._schedule_mic_poll()
+
+    def _average_or_default(self, values: list[float], default: float) -> float:
+        if not values:
+            return default
+        return float(sum(values) / len(values))
+
+    def _ask_save_mic_defaults(self, avg_db: float, avg_peak: float) -> None:
+        speech_samples = [v for v in self._mic_test_db_samples if v > -65.0]
+        speech_db = self._average_or_default(speech_samples, avg_db)
+
+        suggested_voice_level = int(max(200, min(3200, 1200 + (speech_db + 40.0) * 25.0)))
+        suggested_threshold = float(max(0.30, min(0.95, avg_peak * 2.6)))
+
+        msg = (
+            "Mikrofon testi tamamlandi.\n\n"
+            f"Ortalama ses: {avg_db:.1f} dBFS\n"
+            f"Ortalama peak: {avg_peak:.2f}\n"
+            f"Onerilen Ses Esigi: {suggested_voice_level}\n"
+            f"Onerilen Clap Hassasiyet: {suggested_threshold:.2f}\n\n"
+            "Bu canli degerler varsayilan ayar olarak kaydedilsin mi?"
+        )
+
+        if not messagebox.askyesno("Mikrofon Test Sonucu", msg):
+            self.log("Mikrofon test degerleri kaydedilmedi")
+            return
+
+        self.voice_level_var.set(str(suggested_voice_level))
+        self.threshold_var.set(suggested_threshold)
+        self.sync_state()
+
+        try:
+            self.store.save_settings(self.state)
+            self.settings_tab.set_info("Mikrofon test ayarlari varsayilan olarak kaydedildi")
+            self.log("Mikrofon test ayarlari varsayilan olarak kaydedildi")
+        except Exception as exc:
+            self.settings_tab.set_info("Mikrofon test ayarlari kaydedilemedi")
+            messagebox.showerror("Kayit Hatasi", str(exc))
 
     def on_audio_error(self, error: str) -> None:
         self.root.after(0, lambda: self.log(f"Ses hatasi: {error}"))
@@ -833,6 +1109,24 @@ class AsistanApp:
         def _update() -> None:
             self.log(f"Algilanan cumle: {transcript}")
 
+            plugin_result = self.plugin_manager.process_transcript(transcript)
+            if plugin_result is not None:
+                parsed = ParsedCommand(
+                    action=str(plugin_result.get("action", "")),
+                    app_name=str(plugin_result.get("target", "")),
+                    value=int(plugin_result.get("value", 0) or 0),
+                )
+                if parsed.action:
+                    self._run_parsed_command(parsed, "plugin")
+                    return
+
+            normalized = TurkishCommandParser.normalize(transcript)
+            learned = self.learned_commands.get(normalized)
+            if learned is not None:
+                action, target, value = learned
+                self._run_parsed_command(ParsedCommand(action=action, app_name=target, value=value), "ogrenilmis")
+                return
+
             custom_binding = self.binding_store.match(transcript)
             if custom_binding is not None:
                 app_display, target, operation = custom_binding
@@ -840,8 +1134,11 @@ class AsistanApp:
                     ok, msg = close_application(target)
                 else:
                     ok, msg = launch_application(target)
+                    if ok:
+                        self._last_app_context = target
                 self.log(f"Komut eslesmesi: {app_display}")
                 self.log(msg)
+                self._log_history(transcript, f"binding:{operation}", ok, "binding")
                 if not ok:
                     messagebox.showerror("Uygulama Hatasi", msg)
                 return
@@ -849,6 +1146,11 @@ class AsistanApp:
             if self.state.voice.command_mode == "dogal":
                 parsed = TurkishCommandParser.parse(transcript)
                 if parsed.action == "bilinmiyor":
+                    if normalized == "kapat" and self._last_app_context:
+                        self._run_parsed_command(ParsedCommand(action="uygulama_kapat", app_name=self._last_app_context), "baglam")
+                        return
+                    if self.state.ui.learning_mode:
+                        self._teach_unknown_command(transcript)
                     return
                 if parsed.delay_seconds > 0:
                     self._schedule_parsed_command(parsed)
@@ -861,6 +1163,24 @@ class AsistanApp:
                 self.execute_action("sesli komut")
 
         self.root.after(0, _update)
+
+    def _teach_unknown_command(self, transcript: str) -> None:
+        action = simpledialog.askstring(
+            "Komut Ogren",
+            "Bu komut anlasilamadi. Hangi eylem olsun?\nOrnek: sesi_kis, wifi_kapat, uygulama_ac",
+            parent=self.root,
+        )
+        if not action:
+            return
+        target = simpledialog.askstring("Komut Ogren", "Hedef (opsiyonel):", parent=self.root) or ""
+        value_raw = simpledialog.askstring("Komut Ogren", "Deger (opsiyonel sayi):", parent=self.root) or "0"
+        try:
+            value = int(value_raw)
+        except Exception:
+            value = 0
+        self.store.upsert_learned_command(transcript, action.strip(), target.strip(), value)
+        self.learned_commands[TurkishCommandParser.normalize(transcript)] = (action.strip(), target.strip(), value)
+        self.log(self._style_message("Yeni komut ogretildi"))
 
     def _schedule_parsed_command(self, parsed: ParsedCommand) -> None:
         if parsed.action == "uygulama_ac":
@@ -878,9 +1198,25 @@ class AsistanApp:
         )
 
     def _run_parsed_command(self, parsed: ParsedCommand, source: str) -> None:
+        if self._should_confirm_risky(parsed.action):
+            if not messagebox.askyesno("Guvenlik Onayi", f"'{parsed.action}' eylemi calistirilsin mi?"):
+                return
+
+        if parsed.action == "geri_al":
+            try:
+                self.actions.undo_last_action(source)
+                self._log_history("geri al", "geri_al", True, source)
+            except RuntimeError as exc:
+                messagebox.showerror("Eylem Hatasi", str(exc))
+                self._log_history("geri al", "geri_al", False, source)
+            return
+
         if parsed.action == "uygulama_ac":
             ok, msg = launch_application(parsed.app_name)
             self.log(msg)
+            if ok:
+                self._last_app_context = parsed.app_name
+            self._log_history(parsed.app_name, "uygulama_ac", ok, source)
             if not ok:
                 messagebox.showerror("Uygulama Hatasi", msg)
             return
@@ -888,6 +1224,7 @@ class AsistanApp:
         if parsed.action == "uygulama_kapat":
             ok, msg = close_application(parsed.app_name)
             self.log(msg)
+            self._log_history(parsed.app_name, "uygulama_kapat", ok, source)
             if not ok:
                 messagebox.showerror("Uygulama Hatasi", msg)
             return
@@ -895,21 +1232,28 @@ class AsistanApp:
         if parsed.action == "yeniden_baslat":
             try:
                 self.actions.restart(source)
+                self._log_history("yeniden baslat", "yeniden_baslat", True, source)
             except RuntimeError as exc:
                 messagebox.showerror("Eylem Hatasi", str(exc))
+                self._log_history("yeniden baslat", "yeniden_baslat", False, source)
             return
 
         if parsed.action in {"uyku", "kapat"}:
             try:
                 self.actions.run(ActionSettings(action=parsed.action), source)
+                self._log_history(parsed.action, parsed.action, True, source)
             except RuntimeError as exc:
                 messagebox.showerror("Eylem Hatasi", str(exc))
+                self._log_history(parsed.action, parsed.action, False, source)
             return
 
         try:
             self.actions.execute_named_action(parsed.action, source, target=parsed.app_name, value=parsed.value)
+            self._log_history(parsed.app_name or parsed.action, parsed.action, True, source)
+            self._maybe_suggest_routine()
         except RuntimeError as exc:
             messagebox.showerror("Eylem Hatasi", str(exc))
+            self._log_history(parsed.app_name or parsed.action, parsed.action, False, source)
 
     def test_selected_action(self) -> None:
         if self.state.action.action in {"kapat", "ozel_komut"}:
@@ -929,7 +1273,7 @@ class AsistanApp:
         except Exception:
             pass
         self.scheduler.cancel_all()
-        self._stop_mic_test_ui()
+        self._stop_mic_test_ui(prompt_save=False)
         self.stop_monitoring()
         self.root.destroy()
 

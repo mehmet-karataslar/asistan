@@ -123,6 +123,46 @@ class SQLiteStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS learned_commands (
+                    phrase TEXT PRIMARY KEY,
+                    action TEXT NOT NULL,
+                    target TEXT NOT NULL DEFAULT '',
+                    value INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS command_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts TEXT NOT NULL,
+                    transcript TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    success INTEGER NOT NULL,
+                    source TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS profiles (
+                    id TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS routine_suggestions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    rule_text TEXT NOT NULL,
+                    accepted INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
             self._ensure_bindings_operation_column(conn)
             self._ensure_default_scenarios(conn)
             conn.commit()
@@ -255,6 +295,75 @@ class SQLiteStore:
             )
             conn.commit()
 
+    def load_learned_commands(self) -> list[tuple[str, str, str, int]]:
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT phrase, action, target, value FROM learned_commands ORDER BY phrase COLLATE NOCASE"
+            ).fetchall()
+        return [(str(p), str(a), str(t), int(v)) for p, a, t, v in rows]
+
+    def upsert_learned_command(self, phrase: str, action: str, target: str = "", value: int = 0) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO learned_commands(phrase, action, target, value) VALUES(?, ?, ?, ?) "
+                "ON CONFLICT(phrase) DO UPDATE SET action=excluded.action, target=excluded.target, value=excluded.value",
+                (phrase, action, target, int(value)),
+            )
+            conn.commit()
+
+    def save_history(self, transcript: str, action: str, success: bool, source: str = "") -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO command_history(ts, transcript, action, success, source) VALUES(datetime('now'), ?, ?, ?, ?)",
+                (transcript, action, 1 if success else 0, source),
+            )
+            conn.commit()
+
+    def load_history_summary(self, limit: int = 80) -> list[tuple[str, int, int]]:
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT action, COUNT(*), SUM(success) FROM command_history GROUP BY action ORDER BY COUNT(*) DESC LIMIT ?",
+                (max(5, int(limit)),),
+            ).fetchall()
+        return [(str(action), int(total or 0), int(ok or 0)) for action, total, ok in rows]
+
+    def save_profile(self, profile_id: str, display_name: str, payload: dict) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO profiles(id, display_name, payload) VALUES(?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET display_name=excluded.display_name, payload=excluded.payload",
+                (profile_id, display_name, json.dumps(payload, ensure_ascii=False)),
+            )
+            conn.commit()
+
+    def load_profiles(self) -> list[tuple[str, str, dict]]:
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute("SELECT id, display_name, payload FROM profiles ORDER BY id").fetchall()
+        result: list[tuple[str, str, dict]] = []
+        for pid, name, payload in rows:
+            try:
+                obj = json.loads(str(payload))
+            except Exception:
+                obj = {}
+            result.append((str(pid), str(name), obj))
+        return result
+
+    def save_routine_suggestion(self, rule_text: str, accepted: bool = False) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO routine_suggestions(rule_text, accepted) VALUES(?, ?)",
+                (rule_text, 1 if accepted else 0),
+            )
+            conn.commit()
+
+    def load_routine_suggestions(self, limit: int = 20) -> list[tuple[int, str, bool]]:
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, rule_text, accepted FROM routine_suggestions ORDER BY id DESC LIMIT ?",
+                (max(1, int(limit)),),
+            ).fetchall()
+        return [(int(i), str(t), bool(a)) for i, t, a in rows]
+
     def _state_to_map(self, state: AppState) -> dict[str, str]:
         return {
             "detection.mode": state.detection.mode,
@@ -278,6 +387,10 @@ class SQLiteStore:
             "voice.vosk_model_path": state.voice.vosk_model_path,
             "ui.theme": state.ui.theme,
             "ui.user_name": state.ui.user_name,
+            "ui.response_style": state.ui.response_style,
+            "ui.security_level": state.ui.security_level,
+            "ui.learning_mode": "1" if state.ui.learning_mode else "0",
+            "ui.active_profile": state.ui.active_profile,
         }
 
     def _state_from_map(self, src: dict[str, str]) -> AppState:
@@ -314,6 +427,10 @@ class SQLiteStore:
         ui = UiSettings(
             theme=src.get("ui.theme", defaults.ui.theme),
             user_name=src.get("ui.user_name", defaults.ui.user_name),
+            response_style=src.get("ui.response_style", defaults.ui.response_style),
+            security_level=src.get("ui.security_level", defaults.ui.security_level),
+            learning_mode=src.get("ui.learning_mode", "1") not in {"0", "false", "False"},
+            active_profile=src.get("ui.active_profile", defaults.ui.active_profile),
         )
 
         return AppState(detection=detection, action=action, voice=voice, ui=ui)
