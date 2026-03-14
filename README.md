@@ -243,10 +243,10 @@ assets/screenshots/
 
 Ornek dosya isimleri:
 
-- `main-window.png`
-- `settings-tab.png`
-- `bindings-tab.png`
-- `installer-wizard.png`
+- `main-window.bmp`
+- `settings-tab.bmp`
+- `bindings-tab.bmp`
+- `installer-wizard-Kurulum Videosu.mp4`
 
 ### 15.2 Ekran goruntusunu nasil alirim?
 
@@ -268,16 +268,16 @@ Asagidaki Markdown satirlarini uygun bolume ekle:
 ## Uygulama Goruntuleri
 
 ### Ana Pencere
-![Ana Pencere](assets/screenshots/main-window.png)
+![Ana Pencere](assets/screenshots/main-window.bmp)
 
 ### Ayarlar Sekmesi
-![Ayarlar Sekmesi](assets/screenshots/settings-tab.png)
+![Ayarlar Sekmesi](assets/screenshots/settings-tab.bmp)
 
 ### Komut Esleme Sekmesi
-![Komut Esleme](assets/screenshots/bindings-tab.png)
+![Komut Esleme](assets/screenshots/bindings-tab.bmp)
 
-### Kurulum Sihirbazi
-![Kurulum Sihirbazi](assets/screenshots/installer-wizard.png)
+### Kurulum Videosu
+[Kurulum videosunu izle](assets/screenshots/installer-wizard-Kurulum%20Videosu.mp4)
 ```
 
 ### 15.4 Gorsellerin daha iyi gorunmesi icin ipuclari
@@ -296,3 +296,21 @@ git push origin HEAD
 ```
 
 Not: `assets/screenshots/` klasorunde en az bir dosya olmadan commit etmek istersen git klasoru takip etmeyebilir.
+
+### 15.6 Bu Repoda Ekli Olan Medyalar
+
+#### Ana Pencere
+
+![Ana Pencere](assets/screenshots/main-window.bmp)
+
+#### Ayarlar Sekmesi
+
+![Ayarlar Sekmesi](assets/screenshots/settings-tab.bmp)
+
+#### Komut Esleme Sekmesi
+
+![Komut Esleme](assets/screenshots/bindings-tab.bmp)
+
+#### Kurulum Videosu
+
+- [Kurulum videosunu izle](assets/screenshots/installer-wizard-Kurulum%20Videosu.mp4)
