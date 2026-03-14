@@ -229,88 +229,20 @@ winget install --id JRSoftware.InnoSetup -e
 powershell -ExecutionPolicy Bypass -File .\tools\build_installer.ps1
 ```
 
-## 15) README Icine Ekran Goruntusu Ekleme (Adim Adim)
-
-Bu bolum, README'ye uygulama goruntuleri eklemek isteyen gelistirici icindir.
-
-### 15.1 Goruntuleri nereye koymaliyim?
-
-Onerilen klasor:
-
-```text
-assets/screenshots/
-```
-
-Ornek dosya isimleri:
-
-- `main-window.bmp`
-- `settings-tab.bmp`
-- `bindings-tab.bmp`
-- `installer-wizard-Kurulum Videosu.mp4`
-
-### 15.2 Ekran goruntusunu nasil alirim?
-
-- Uygulamayi ac:
-
-```powershell
-python asistan.py
-```
-
-- Windows'ta `Win + Shift + S` ile kesit al.
-- Goruntuyu `assets/screenshots/` altina kaydet.
-- Dosya adinda bosluk kullanma, kucuk harf ve tire kullan.
-
-### 15.3 README'ye nasil eklerim?
-
-Asagidaki Markdown satirlarini uygun bolume ekle:
-
-```markdown
-## Uygulama Goruntuleri
+## Uygulama Goruntuleri ve Kurulum Videosu
 
 ### Ana Pencere
+
 ![Ana Pencere](assets/screenshots/main-window.bmp)
 
 ### Ayarlar Sekmesi
+
 ![Ayarlar Sekmesi](assets/screenshots/settings-tab.bmp)
 
 ### Komut Esleme Sekmesi
-![Komut Esleme](assets/screenshots/bindings-tab.bmp)
+
+![Komut Esleme Sekmesi](assets/screenshots/bindings-tab.bmp)
 
 ### Kurulum Videosu
-[Kurulum videosunu izle](assets/screenshots/installer-wizard-Kurulum%20Videosu.mp4)
-```
 
-### 15.4 Gorsellerin daha iyi gorunmesi icin ipuclari
-
-- Uygulamayi tam acik sekilde yakala, kirpma cok dar olmasin.
-- En az 1280x720 cozumurlukte goruntu al.
-- Gizli bilgi (kullanici adi, token, klasor yolu) varsa paylasmadan once gizle.
-- Karanlik/acik tema kullaniyorsan README'de hangi tema oldugunu belirt.
-
-### 15.5 Ekran goruntulerini GitHub'a gonderme
-
-```powershell
-git add README.md assets/screenshots/
-git commit -m "docs: README ekran goruntuleri eklendi"
-git push origin HEAD
-```
-
-Not: `assets/screenshots/` klasorunde en az bir dosya olmadan commit etmek istersen git klasoru takip etmeyebilir.
-
-### 15.6 Bu Repoda Ekli Olan Medyalar
-
-#### Ana Pencere
-
-![Ana Pencere](assets/screenshots/main-window.bmp)
-
-#### Ayarlar Sekmesi
-
-![Ayarlar Sekmesi](assets/screenshots/settings-tab.bmp)
-
-#### Komut Esleme Sekmesi
-
-![Komut Esleme](assets/screenshots/bindings-tab.bmp)
-
-#### Kurulum Videosu
-
-- [Kurulum videosunu izle](assets/screenshots/installer-wizard-Kurulum%20Videosu.mp4)
+[Kurulum videosunu oynat](assets/screenshots/installer-wizard-Kurulum%20Videosu.mp4)
