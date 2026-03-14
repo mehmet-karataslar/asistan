@@ -1,120 +1,230 @@
 # Asistan (Python)
 
-Bu uygulama, mikrofonla el cirpma veya Turkce sesli komut algilar ve belirlenen kosullarda Windows bilgisayari uyku moduna alir, kapatir veya kullanicinin girdigi ozel komutu calistirir.
+Bu proje, Windows ortaminda sesli komut ve el cirpma ile bilgisayar eylemleri tetikleyen bir masaustu asistandir.
+Asagidaki rehber, sifirdan kurulum yapan bir kullaniciya gore hazirlandi.
 
-## Ozellikler
+## Neler Yapar?
 
-- Renkli arayuz ve coklu tema secimi
-- Moduler dosya yapisi
-- `Devreye Al` / `Dinlemeyi Durdur` / `Secili Eylemi Test Et` butonlari
-- Turkce sesli komut modu ve kullanicinin girdigi anahtar kelime algilama
-- Hassasiyet, clap sayisi, clap penceresi, minimum clap araligi, ses seviyesi ve cooldown ayarlari
-- `sleep`, `shutdown` ve `custom` eylem secenekleri
-- Durum ve log ekrani
+- Sesli komut veya el cirpma ile tetikleme
+- Sistem eylemleri (uyku, kapatma, ozel komut)
+- Uygulama ac/kapat komut esleme
+- Senaryolar, pencere yonetimi ve temel akilli ozellikler
+- SQLite ile yerel ayar/senaryo kaydi
 
-## Dosya Yapisi
+## Proje Yapisi
 
-```text
-asistan.py
-asistan/
-	__init__.py
-	actions.py
-	audio.py
-	settings.py
-	theme.py
-	ui.py
+- `asistan.py`: uygulama giris noktasi
+- `asistan/`: ana uygulama kodlari
+- `plugins/`: ozel eklentiler
+- `assets/icons/`: uygulama ikonlari
+- `tools/build_windows.ps1`: EXE derleme scripti
+- `tools/build_installer.ps1`: kurulum paketi derleme scripti
+- `installer/asistan.iss`: Inno Setup installer tanimi
+
+## 1) Sistem Gereksinimleri
+
+- Isletim sistemi: Windows 10/11
+- Python: 3.10 veya ustu (onerilen: 3.11+)
+- Mikrofon
+- Internet: cevrimici ses tanima icin onerilir
+
+## 2) Python Kurulu Mu? (Kontrol)
+
+PowerShell acip sunlari calistir:
+
+```powershell
+python --version
+py --version
 ```
 
-## Gereksinimler
+Bu komutlardan biri surum dondurmelidir.
 
-- Windows
-- Python 3.10+
-- Mikrofon
+## 3) Python Kurulu Degilse Kurulum
 
-## Kurulum
+### Yontem A - winget ile (onerilen)
 
-```bash
+```powershell
+winget install --id Python.Python.3.11 -e
+```
+
+Kurulumdan sonra terminali kapatip yeniden ac ve tekrar kontrol et:
+
+```powershell
+python --version
+```
+
+### Yontem B - python.org
+
+- [Python indirme sayfasi](https://www.python.org/downloads/) adresinden indir.
+- Kurulumda mutlaka `Add Python to PATH` secenegini isaretle.
+
+## 4) SQLite Destegi Var Mi? (Python icinden kontrol)
+
+Bu proje ayarlari SQLite ile tutar. Python'un sqlite3 modulu aktif olmali.
+
+```powershell
+python -m sqlite3 --version
+```
+
+Alternatif kontrol:
+
+```powershell
+python -c "import sqlite3; print(sqlite3.sqlite_version)"
+```
+
+Hata alirsan Python'u resmi dagitimdan yeniden kur (genelde sqlite3 dahil gelir).
+
+## 5) Projeyi Klonla
+
+```powershell
+git clone git@github.com:mehmet-karataslar/asistan.git
+cd asistan
+```
+
+HTTPS kullanmak istersen:
+
+```powershell
+git clone https://github.com/mehmet-karataslar/asistan.git
+cd asistan
+```
+
+## 6) Sanal Ortam Olustur
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Eger PowerShell script engeli olursa:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+## 7) Bagimliliklari Kur
+
+```powershell
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-## Windows EXE Build
+## 8) Uygulamayi Gelistirme Modunda Calistir
 
-Uretim ortami icin ek araclar:
+```powershell
+python asistan.py
+```
 
-```bash
+## 9) EXE Build Alma (Gelistirici Icin)
+
+EXE build icin gerekli ek paketler:
+
+```powershell
 pip install Pillow pyinstaller
 ```
 
-Icon uret ve EXE klasorunu olustur:
+Build komutu:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\build_windows.ps1
 ```
 
-Bu komut sonunda cikti klasoru:
+Olusan cikti:
 
-```text
-dist/Asistan/
+- `dist/Asistan/Asistan.exe`
+
+Not: Bu EXE, Python runtime dahil paketlenir. Son kullanicida Python kurulu olmasi gerekmez.
+
+## 10) Kurulum Dosyasi (Setup.exe) Uretme
+
+### 10.1 Inno Setup kur
+
+```powershell
+winget install --id JRSoftware.InnoSetup -e
 ```
 
-Ana uygulama dosyasi:
-
-```text
-dist/Asistan/Asistan.exe
-```
-
-## Installer (Kurulum Paketi)
-
-1. Inno Setup 6 kur.
-2. Asagidaki komutu calistir:
+### 10.2 Installer derle
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\build_installer.ps1
 ```
 
-Alternatif olarak `installer/asistan.iss` dosyasini Inno Setup ile acip Compile yapabilirsiniz.
+Olusan kurulum dosyasi:
 
-Uretilen kurulum dosyasi:
+- `dist_installer/Asistan-Setup.exe`
 
-```text
-dist_installer/Asistan-Setup.exe
-```
+Bu dosya son kullaniciya verilecek asil kurulum dosyasidir.
 
-Bu setup dosyasi, son kullanici bilgisayarina gerekli Python runtime ve uygulama dosyalarini birlikte kurar.
+## 11) Son Kullanici Tarafinda Kurulum Akisi
 
-## Veri ve Eklenti Konumu
+1. `Asistan-Setup.exe` dosyasini cift tiklayip kurulumu baslat.
+2. Kurulum sihirbazinda varsayilan adimlari onayla.
+3. Kurulum bitince masaustu kisayolundan uygulamayi ac.
 
-Kurulumdan sonra uygulama yazilabilir dosyalari su klasorde tutar:
+Son kullanicinin ayrica Python, pip veya baska paket kurmasina gerek yoktur.
+
+## 12) Veri Kayit Konumu (Kalici ve Yazilabilir)
+
+Uygulama calisirken veriyi su klasore yazar:
 
 ```text
 %LOCALAPPDATA%/Asistan/
 ```
 
-- `asistan_data.db`: ayarlar, komutlar, gecmis
-- `plugins/`: kullanici plugin dosyalari
+Icerik:
 
-## Calistirma
+- `asistan_data.db`: ayarlar, komutlar, gecmis, profiller
+- `plugins/`: kullanici eklentileri
 
-```bash
-python asistan.py
+## 13) Sik Karsilasilan Sorunlar ve Cozumler
+
+### Python komutu bulunamiyor
+
+- Python kurulumunu tekrar yap.
+- `Add Python to PATH` seceneginin acik oldugunu dogrula.
+
+### Mikrofon acilmiyor
+
+- Windows mikrofon izinlerini kontrol et.
+- Baska bir uygulama mikrofona kilit koyuyor olabilir.
+
+### Build sirasinda PyInstaller hatasi
+
+- Sanal ortam aktif mi kontrol et.
+- Paketleri yeniden kur:
+
+```powershell
+pip install --upgrade pip
+pip install -r requirements.txt
+pip install Pillow pyinstaller
 ```
 
-## Kullanim
+### Installer scripti Inno Setup bulamiyor
 
-1. Uygulamayi acin.
-2. `Algilama Ayarlari` alanindan hassasiyet ve clap ayarlarini ortaminiza gore ayarlayin.
-3. `Tetikleme Ayarlari` alanindan `voice` veya `clap` secin.
-4. `voice` seciliyse Turkce anahtar kelimeyi girin.
-5. `Eylem Ayarlari` alanindan `sleep`, `shutdown` veya `custom` secin.
-6. `custom` seciliyse calistirilacak komutu girin.
-7. `Devreye Al` ile mikrofon dinlemesini baslatin.
-8. `voice` modunda anahtar kelimeyi soyleyin, `clap` modunda ayarladiginiz clap sayisi kadar el cirpin.
+- Inno Setup kurulumunu tamamla.
+- Tekrar calistir:
 
-## Notlar
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\build_installer.ps1
+```
 
-- Uyku komutu bazi sistemlerde guc politikasi nedeniyle engellenebilir.
-- Yanlis tetikleme olursa hassasiyet esigini yukseltin, minimum clap araligini arttirin veya clap sayisini 3 yapin.
-- `shutdown` secenegi bilgisayari hemen kapatir. Test ederken dikkatli olun.
-- Turkce ses tanima icin internet baglantisi gerekir.
+## 14) Hizli Komut Ozeti
 
-# asistan
+```powershell
+# 1) Sanal ortam
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# 2) Bagimlilik
+pip install -r requirements.txt
+
+# 3) Uygulama
+python asistan.py
+
+# 4) EXE
+powershell -ExecutionPolicy Bypass -File .\tools\build_windows.ps1
+
+# 5) Installer
+winget install --id JRSoftware.InnoSetup -e
+powershell -ExecutionPolicy Bypass -File .\tools\build_installer.ps1
+```
