@@ -25,6 +25,8 @@ class CommandBindingsTab:
         self.remove_phrase_var = ctk.StringVar(value="")
         self.operation_var = ctk.StringVar(value="Uygulamayi Ac")
         self._app_rows: list[tuple[str, str]] = []
+        self._binding_rows: list[tuple[str, str, str]] = []
+        self._editing_phrase: str = ""
         self.search_var = ctk.StringVar(value="")
 
         self.root = ctk.CTkFrame(parent, fg_color="transparent")
@@ -91,9 +93,11 @@ class CommandBindingsTab:
 
         self.search_var.trace_add("write", lambda *_: self._apply_filter())
 
-        self.list_box = ctk.CTkTextbox(self.root, height=360)
-        self.list_box.pack(fill="both", expand=True, padx=12, pady=(0, 12))
-        self.list_box.configure(state="disabled")
+        ctk.CTkLabel(self.root, text="Kayitli Komutlar", font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=12, pady=(2, 6))
+        self.bindings_scroll = ctk.CTkScrollableFrame(self.root, height=300)
+        self.bindings_scroll.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self.bindings_scroll.bind("<MouseWheel>", self._on_bindings_mouse_wheel)
+        self._set_add_button_edit_mode(False)
 
     def set_apps(self, app_rows: list[tuple[str, str]]) -> None:
         self._app_rows = app_rows
@@ -156,11 +160,48 @@ class CommandBindingsTab:
 
         self._select_app(app_rows[0][0])
 
+    def set_bindings(self, rows: list[tuple[str, str, str]]) -> None:
+        self._binding_rows = rows
+        if self._editing_phrase:
+            normalized = self._normalize(self._editing_phrase)
+            still_exists = any(self._normalize(phrase) == normalized for phrase, _app, _op in rows)
+            if not still_exists:
+                self.clear_editing_selection()
+        self._render_bindings()
+
     def set_bindings_text(self, content: str) -> None:
-        self.list_box.configure(state="normal")
-        self.list_box.delete("1.0", "end")
-        self.list_box.insert("end", content)
-        self.list_box.configure(state="disabled")
+        """Geriye donuk uyumluluk icin metin tabanli yontem."""
+        if not content or content.strip() == "Kayitli esleme yok":
+            self.set_bindings([])
+
+    def _render_bindings(self) -> None:
+        for child in self.bindings_scroll.winfo_children():
+            child.destroy()
+
+        if not self._binding_rows:
+            ctk.CTkLabel(self.bindings_scroll, text="(kayitli komut eslemesi yok)").pack(anchor="w", padx=4, pady=4)
+            return
+
+        for idx, (phrase, app_display, operation) in enumerate(self._binding_rows, start=1):
+            row = ctk.CTkFrame(self.bindings_scroll, fg_color="transparent")
+            row.pack(fill="x", padx=4, pady=2)
+
+            badge = ctk.CTkLabel(row, text=f"{idx:03}", width=44, anchor="center")
+            badge.pack(side="left", padx=(0, 6))
+
+            op_label = "ac" if operation == "ac" else "kapat"
+            text = f"{phrase} -> {app_display} ({op_label})"
+            btn = ctk.CTkButton(
+                row,
+                text=text,
+                anchor="w",
+                command=lambda p=phrase, a=app_display, op=operation: self._select_binding(p, a, op),
+            )
+            btn.pack(side="left", fill="x", expand=True)
+
+            row.bind("<MouseWheel>", self._on_bindings_mouse_wheel)
+            badge.bind("<MouseWheel>", self._on_bindings_mouse_wheel)
+            btn.bind("<MouseWheel>", self._on_bindings_mouse_wheel)
 
     def set_info(self, text: str) -> None:
         self.info_var.set(text)
@@ -170,6 +211,9 @@ class CommandBindingsTab:
 
     def selected_operation(self) -> str:
         return "kapat" if self.operation_var.get().strip() == "Uygulamayi Kapat" else "ac"
+
+    def editing_phrase(self) -> str:
+        return self._editing_phrase
 
     def phrase(self) -> str:
         return self.phrase_var.get().strip()
@@ -182,6 +226,10 @@ class CommandBindingsTab:
 
     def clear_remove_phrase(self) -> None:
         self.remove_phrase_var.set("")
+
+    def clear_editing_selection(self) -> None:
+        self._editing_phrase = ""
+        self._set_add_button_edit_mode(False)
 
     def _handle_refresh_apps(self) -> None:
         self.on_refresh_apps()
@@ -198,6 +246,19 @@ class CommandBindingsTab:
     def _select_app(self, display_name: str) -> None:
         self.app_var.set(display_name)
 
+    def _select_binding(self, phrase: str, app_display: str, operation: str) -> None:
+        self._editing_phrase = phrase
+        self.app_var.set(app_display)
+        self.phrase_var.set(phrase)
+        self.remove_phrase_var.set(phrase)
+        self.operation_var.set("Uygulamayi Kapat" if operation == "kapat" else "Uygulamayi Ac")
+        self._set_add_button_edit_mode(True)
+        self.set_info(f"Duzenleme modu: '{phrase}'")
+
+    def _set_add_button_edit_mode(self, is_editing: bool) -> None:
+        text = "Komut Eşlemesini Güncelle" if is_editing else "Komut Eşlemesini Kaydet"
+        self.add_btn.configure(text=text)
+
     def set_theme(self, palette: dict[str, str]) -> None:
         self.refresh_apps_btn.configure(fg_color=palette["accent"], hover_color=palette["accent_hover"], text_color=palette["text"])
         self.add_btn.configure(fg_color=palette["success"], hover_color=palette["success_hover"], text_color=palette["text"])
@@ -213,7 +274,7 @@ class CommandBindingsTab:
         for entry in (self.selected_app_entry, self.phrase_entry, self.remove_entry, self.search_entry):
             entry.configure(fg_color=palette["input"], text_color=palette["text"], border_color=palette["surface_alt"])
 
-        self.list_box.configure(fg_color=palette["input"], text_color=palette["text"], border_color=palette["surface_alt"])
+        self.bindings_scroll.configure(fg_color=palette["input"], border_color=palette["surface_alt"])
 
     def _normalize(self, value: str) -> str:
         lowered = value.casefold().strip()
@@ -230,6 +291,15 @@ class CommandBindingsTab:
             direction = -1 if event.delta > 0 else 1
             steps = max(1, abs(int(event.delta)) // 120) * 4
             self.apps_scroll._parent_canvas.yview_scroll(direction * steps, "units")
+        except Exception:
+            pass
+        return "break"
+
+    def _on_bindings_mouse_wheel(self, event) -> str:
+        try:
+            direction = -1 if event.delta > 0 else 1
+            steps = max(1, abs(int(event.delta)) // 120) * 4
+            self.bindings_scroll._parent_canvas.yview_scroll(direction * steps, "units")
         except Exception:
             pass
         return "break"

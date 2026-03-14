@@ -78,8 +78,8 @@ class ActionSettings:
 class VoiceSettings:
     keyword: str = "bilgisayarı kapat"
     command_mode: str = "dogal"
-    recognition_engine: str = "cevrimici"
-    phrase_time_limit: float = 2.6
+    recognition_engine: str = "cevrimici_whisper"
+    phrase_time_limit: float = 2.4
     samplerate: int = 16000
     cooldown: float = 8.0
     min_voice_level: int = 900

@@ -65,23 +65,49 @@ class OfflineSpeechEngine:
     def _loop(self) -> None:
         samplerate = self.settings.samplerate
         recognizer = KaldiRecognizer(self.model, samplerate)
+        silence_timeout = max(0.7, min(1.5, self.settings.phrase_time_limit * 0.35))
+        continue_level = max(120, int(self.settings.min_voice_level * 0.55))
+        speech_active = False
+        last_voice_time = time.time()
+
+        def emit_result(payload: str) -> None:
+            if not payload:
+                return
+            try:
+                result = json.loads(payload)
+                text = (result.get("text") or "").strip()
+                if text:
+                    self.on_phrase(text)
+            except Exception:
+                return
 
         def callback(indata, frames, time_info, status):
+            nonlocal recognizer, speech_active, last_voice_time
             if status:
                 return
             signal = np.frombuffer(indata, dtype=np.int16)
-            if not is_voice_like_int16(
+            voice_like = is_voice_like_int16(
                 signal,
                 samplerate,
                 self.settings.min_voice_level,
                 filter_system_audio=self.settings.filter_system_audio,
-            ):
+            )
+            peak_i16 = int(np.max(np.abs(signal))) if signal.size else 0
+            continue_voice = peak_i16 >= continue_level
+
+            if voice_like or (speech_active and continue_voice):
+                speech_active = True
+                last_voice_time = time.time()
+                if recognizer.AcceptWaveform(indata.tobytes()):
+                    emit_result(recognizer.Result())
                 return
-            recognizer.AcceptWaveform(indata.tobytes())
-            result = json.loads(recognizer.Result())
-            text = (result.get("text") or "").strip()
-            if text:
-                self.on_phrase(text)
+
+            if speech_active:
+                recognizer.AcceptWaveform(indata.tobytes())
+                if time.time() - last_voice_time >= silence_timeout:
+                    emit_result(recognizer.FinalResult())
+                    recognizer = KaldiRecognizer(self.model, samplerate)
+                    speech_active = False
 
         try:
             with sd.RawInputStream(
@@ -93,6 +119,8 @@ class OfflineSpeechEngine:
             ):
                 while not self.stop_event.is_set():
                     time.sleep(0.1)
+            if speech_active:
+                emit_result(recognizer.FinalResult())
         except Exception as exc:
             self.on_error(f"Cevrimdisi ses tanima hatasi: {exc}")
 

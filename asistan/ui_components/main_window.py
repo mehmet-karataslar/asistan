@@ -10,7 +10,7 @@ from ..actions import SystemActions
 from ..app_catalog import discover_installed_apps
 from ..app_launcher import close_application, launch_application
 from ..audio import ClapDetector
-from ..command_bindings import CommandBindingStore
+from ..command_bindings import CommandBindingStore, normalize_text
 from ..command_parser import ParsedCommand, TurkishCommandParser
 from ..paths import db_file_path, ensure_user_plugins_seeded, icon_ico_path, icon_png_path
 from ..mic_monitor import MicrophoneMonitor
@@ -29,7 +29,11 @@ from .sistem_kontrol_tab import SistemKontrolTab
 
 ALGILAMA_TURLERI = {"Sesli Komut": "sesli_komut", "El Cirpma": "el_cirpma"}
 KOMUT_MODLARI = {"Dogal Komut": "dogal", "Anahtar Kelime": "anahtar"}
-SES_MOTORLERI = {"Cevrimici": "cevrimici", "Cevrimdisi (Vosk)": "cevrimdisi"}
+SES_MOTORLERI = {
+    "Cevrimici (Whisper TR)": "cevrimici_whisper",
+    "Cevrimici (Google)": "cevrimici",
+    "Cevrimdisi (Vosk)": "cevrimdisi",
+}
 EYLEM_TURLERI = {
     "Uyku Moduna Gec": "uyku",
     "Bilgisayari Kapat": "kapat",
@@ -79,7 +83,7 @@ class AsistanApp:
         self.samplerate_var = ctk.StringVar(value=str(self.state.detection.samplerate))
         self.voice_keyword_var = ctk.StringVar(value=self.state.voice.keyword)
         self.command_mode_var = ctk.StringVar(value="Dogal Komut")
-        self.recognition_engine_var = ctk.StringVar(value="Cevrimici")
+        self.recognition_engine_var = ctk.StringVar(value="Cevrimici (Whisper TR)")
         self.vosk_model_path_var = ctk.StringVar(value=self.state.voice.vosk_model_path)
         self.voice_phrase_limit_var = ctk.DoubleVar(value=self.state.voice.phrase_time_limit)
         self.voice_level_var = ctk.StringVar(value=str(self.state.voice.min_voice_level))
@@ -315,9 +319,9 @@ class AsistanApp:
         self.vosk_model_entry.pack(side="left", fill="x", expand=True)
 
         row = self._row(parent, "Dinleme Suresi")
-        self.voice_limit_slider = ctk.CTkSlider(row, from_=1.5, to=5.0, variable=self.voice_phrase_limit_var)
+        self.voice_limit_slider = ctk.CTkSlider(row, from_=1.0, to=5.0, variable=self.voice_phrase_limit_var)
         self.voice_limit_slider.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        self.voice_limit_label = ctk.CTkLabel(row, text="2.6 sn", width=64)
+        self.voice_limit_label = ctk.CTkLabel(row, text="2.4 sn", width=64)
         self.voice_limit_label.pack(side="left")
 
         row = self._row(parent, "Ses Esigi")
@@ -622,7 +626,7 @@ class AsistanApp:
 
         self.voice_keyword_var.set(self.state.voice.keyword)
         self.command_mode_var.set(self._map_label(KOMUT_MODLARI, self.state.voice.command_mode, "Dogal Komut"))
-        self.recognition_engine_var.set(self._map_label(SES_MOTORLERI, self.state.voice.recognition_engine, "Cevrimici"))
+        self.recognition_engine_var.set(self._map_label(SES_MOTORLERI, self.state.voice.recognition_engine, "Cevrimici (Whisper TR)"))
         self.vosk_model_path_var.set(self.state.voice.vosk_model_path)
         self.voice_phrase_limit_var.set(float(self.state.voice.phrase_time_limit))
         self.voice_level_var.set(str(self.state.voice.min_voice_level))
@@ -652,8 +656,8 @@ class AsistanApp:
         self.state.voice = VoiceSettings(
             keyword=self.voice_keyword_var.get().strip(),
             command_mode=self._map_key(KOMUT_MODLARI, self.command_mode_var.get().strip(), "dogal"),
-            recognition_engine=self._map_key(SES_MOTORLERI, self.recognition_engine_var.get().strip(), "cevrimici"),
-            phrase_time_limit=float(self.voice_phrase_limit_var.get()),
+            recognition_engine=self._map_key(SES_MOTORLERI, self.recognition_engine_var.get().strip(), "cevrimici_whisper"),
+            phrase_time_limit=max(1.0, min(5.0, float(self.voice_phrase_limit_var.get()))),
             samplerate=16000,
             cooldown=self._to_float(self.cooldown_var.get(), 8.0),
             min_voice_level=max(200, self._to_int(self.voice_level_var.get(), 900)),
@@ -786,7 +790,7 @@ class AsistanApp:
     def _update_mode_help(self) -> None:
         mode = self._map_key(ALGILAMA_TURLERI, self.mode_var.get().strip(), "sesli_komut")
         is_voice = mode == "sesli_komut"
-        is_offline = self._map_key(SES_MOTORLERI, self.recognition_engine_var.get().strip(), "cevrimici") == "cevrimdisi"
+        is_offline = self._map_key(SES_MOTORLERI, self.recognition_engine_var.get().strip(), "cevrimici_whisper") == "cevrimdisi"
 
         voice_state = "normal" if is_voice else "disabled"
         clap_state = "normal" if not is_voice else "disabled"
@@ -823,6 +827,7 @@ class AsistanApp:
     def add_phrase_binding(self) -> None:
         app_display = self.bindings_tab.selected_app()
         phrase = self.bindings_tab.phrase()
+        remove_phrase = self.bindings_tab.remove_phrase()
         if not phrase:
             self.bindings_tab.set_info("Komut cumlesi bos olamaz")
             return
@@ -832,13 +837,24 @@ class AsistanApp:
 
         target = self.app_targets_by_display.get(app_display, app_display)
         operation = self.bindings_tab.selected_operation()
+
+        editing_phrase = self.bindings_tab.editing_phrase()
+        update_mode = bool(editing_phrase) and normalize_text(remove_phrase) == normalize_text(editing_phrase)
+        if update_mode and normalize_text(editing_phrase) != normalize_text(phrase):
+            self.binding_store.remove(editing_phrase)
+
         ok, msg = self.binding_store.add(phrase, app_display, target, operation)
-        self.bindings_tab.set_info(msg)
+        if ok and update_mode:
+            self.bindings_tab.set_info(f"Komut guncellendi: '{editing_phrase}' -> '{phrase}'")
+        else:
+            self.bindings_tab.set_info(msg)
         if ok:
-            self.bindings_tab.clear_phrase()
+            if not update_mode:
+                self.bindings_tab.clear_phrase()
+            self.bindings_tab.clear_editing_selection()
             self.refresh_bindings_preview()
             self._persist_bindings_if_ready()
-            self.log(msg)
+            self.log(self.bindings_tab.info_var.get())
 
     def remove_phrase_binding(self) -> None:
         phrase = self.bindings_tab.remove_phrase()
@@ -849,6 +865,7 @@ class AsistanApp:
         if removed:
             self.bindings_tab.set_info(f"Silindi: {phrase}")
             self.bindings_tab.clear_remove_phrase()
+            self.bindings_tab.clear_editing_selection()
             self.refresh_bindings_preview()
             self._persist_bindings_if_ready()
         else:
@@ -971,13 +988,10 @@ class AsistanApp:
     def refresh_bindings_preview(self) -> None:
         items = self.binding_store.all_items()
         if not items:
-            self.bindings_tab.set_bindings_text("Kayitli esleme yok")
+            self.bindings_tab.set_bindings([])
             return
-        lines = [
-            f"{idx}. {phrase} -> {app} ({'ac' if op == 'ac' else 'kapat'})"
-            for idx, (phrase, app, _target, op) in enumerate(items, start=1)
-        ]
-        self.bindings_tab.set_bindings_text("\n".join(lines))
+        rows = [(phrase, app, op) for phrase, app, _target, op in items]
+        self.bindings_tab.set_bindings(rows)
 
     def set_status(self, text: str) -> None:
         self.status_var.set(text)

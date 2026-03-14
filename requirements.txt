@@ -3,3 +3,4 @@ sounddevice>=0.4.6
 SpeechRecognition>=3.10.4
 customtkinter>=5.2.2
 vosk>=0.3.45
+faster-whisper>=1.1.0
