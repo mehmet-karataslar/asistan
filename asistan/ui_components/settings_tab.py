@@ -13,6 +13,7 @@ class SettingsTab:
         response_style_var: ctk.StringVar,
         security_level_var: ctk.StringVar,
         profile_var: ctk.StringVar,
+        autostart_var: ctk.BooleanVar,
         db_path_text: str,
         theme_values: list[str],
         on_save_click,
@@ -71,6 +72,16 @@ class SettingsTab:
             variable=profile_var,
         )
         self.profile_menu.grid(row=5, column=1, sticky="ew", padx=10, pady=(4, 10))
+
+        ctk.CTkLabel(form, text="Windows ile Baslat").grid(row=6, column=0, sticky="w", padx=10, pady=(4, 10))
+        self.autostart_check = ctk.CTkCheckBox(
+            form,
+            text="Bilgisayar acildiginda otomatik baslat",
+            variable=autostart_var,
+            onvalue=True,
+            offvalue=False,
+        )
+        self.autostart_check.grid(row=6, column=1, sticky="w", padx=10, pady=(4, 10))
 
         form.grid_columnconfigure(1, weight=1)
 

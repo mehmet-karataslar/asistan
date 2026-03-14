@@ -58,3 +58,49 @@ def icon_ico_path() -> Path:
 
 def icon_png_path() -> Path:
     return _bundle_root() / "assets" / "icons" / "asistan-icon-256.png"
+
+
+# ─── Windows otomatik başlatma (Registry) ────────────────────────────────────
+
+_RUN_REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_RUN_VALUE_NAME = "Asistan"
+
+
+def _exe_path_for_autostart() -> str:
+    """Autostart için kayıt defterine yazılacak yürütülebilir dosya yolu."""
+    if getattr(sys, "frozen", False):
+        return str(Path(sys.executable).resolve())
+    # Geliştirme modunda: python betiği olarak çalıştır
+    script = Path(__file__).resolve().parents[1] / "asistan.py"
+    return f'"{sys.executable}" "{script}"'
+
+
+def get_autostart() -> bool:
+    """Uygulama Windows ile otomatik başlıyorsa True döner."""
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_REG_KEY)
+        winreg.QueryValueEx(key, _RUN_VALUE_NAME)
+        winreg.CloseKey(key)
+        return True
+    except OSError:
+        return False
+
+
+def set_autostart(enabled: bool) -> None:
+    """Otomatik başlatma kayıt defteri girdisini ekler veya kaldırır."""
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, _RUN_REG_KEY, 0, winreg.KEY_SET_VALUE
+        )
+        if enabled:
+            winreg.SetValueEx(key, _RUN_VALUE_NAME, 0, winreg.REG_SZ, _exe_path_for_autostart())
+        else:
+            try:
+                winreg.DeleteValue(key, _RUN_VALUE_NAME)
+            except FileNotFoundError:
+                pass
+        winreg.CloseKey(key)
+    except OSError:
+        pass

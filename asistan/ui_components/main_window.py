@@ -12,7 +12,7 @@ from ..app_launcher import close_application, launch_application
 from ..audio import ClapDetector
 from ..command_bindings import CommandBindingStore, normalize_text
 from ..command_parser import ParsedCommand, TurkishCommandParser
-from ..paths import db_file_path, ensure_user_plugins_seeded, icon_ico_path, icon_png_path
+from ..paths import db_file_path, ensure_user_plugins_seeded, icon_ico_path, icon_png_path, get_autostart, set_autostart
 from ..mic_monitor import MicrophoneMonitor
 from ..plugins import PluginManager
 from ..scheduler import TaskScheduler
@@ -95,6 +95,7 @@ class AsistanApp:
         self.response_style_var = ctk.StringVar(value=self.state.ui.response_style)
         self.security_level_var = ctk.StringVar(value=self.state.ui.security_level)
         self.profile_var = ctk.StringVar(value=self.state.ui.active_profile)
+        self.autostart_var = ctk.BooleanVar(value=get_autostart())
         self._last_app_context = ""
         self.plugin_manager = PluginManager(ensure_user_plugins_seeded())
 
@@ -257,6 +258,7 @@ class AsistanApp:
             response_style_var=self.response_style_var,
             security_level_var=self.security_level_var,
             profile_var=self.profile_var,
+            autostart_var=self.autostart_var,
             db_path_text=str(self.db_path),
             theme_values=list(THEME_PALETTES.keys()),
             on_save_click=self.save_all_to_db,
@@ -979,6 +981,7 @@ class AsistanApp:
             self.store.save_settings(self.state)
             self.store.save_bindings(self.binding_store.all_items())
             self._save_current_profile_snapshot()
+            set_autostart(self.autostart_var.get())
             self.settings_tab.set_info("Ayarlar ve komutlar kaydedildi")
             self.log("SQLite: ayarlar ve komut eslemeleri kaydedildi")
         except Exception as exc:
