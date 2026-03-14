@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import ctypes
+import subprocess
 import time
 from pathlib import Path
-import subprocess
 from typing import Callable
 
 from .settings import ActionSettings
@@ -14,6 +14,53 @@ class SystemActions:
     def __init__(self, logger: Callable[[str], None], status_setter: Callable[[str], None]) -> None:
         self.logger = logger
         self.status_setter = status_setter
+        self.scenario_steps = self._default_scenarios()
+
+    def _default_scenarios(self) -> dict[str, list[dict[str, object]]]:
+        return {
+            "ders_modu": [
+                {"action": "sesi_sessize_al", "value": 0, "target": ""},
+                {"action": "parlaklik_azalt", "value": 15, "target": ""},
+                {"action": "tum_pencereleri_kucult", "value": 0, "target": ""},
+            ],
+            "is_modu": [
+                {"action": "wifi_ac", "value": 0, "target": ""},
+                {"action": "parlaklik_arttir", "value": 10, "target": ""},
+                {"action": "sesi_kis", "value": 4, "target": ""},
+            ],
+            "oyun_modu": [
+                {"action": "parlaklik_arttir", "value": 20, "target": ""},
+                {"action": "sesi_ac", "value": 8, "target": ""},
+            ],
+            "toplanti_modu": [
+                {"action": "sesi_sessize_al", "value": 0, "target": ""},
+                {"action": "parlaklik_arttir", "value": 5, "target": ""},
+            ],
+            "gece_modu": [
+                {"action": "parlaklik_azalt", "value": 25, "target": ""},
+                {"action": "sesi_kis", "value": 8, "target": ""},
+            ],
+        }
+
+    def update_scenarios(self, scenarios: list[dict]) -> None:
+        parsed: dict[str, list[dict[str, object]]] = {}
+        for scenario in scenarios:
+            scenario_id = str(scenario.get("id", "")).strip()
+            raw_steps = scenario.get("steps", [])
+            steps: list[dict[str, object]] = []
+            for raw_step in raw_steps:
+                action = str(raw_step.get("action", "")).strip()
+                if not action:
+                    continue
+                target = str(raw_step.get("target", "")).strip()
+                try:
+                    value = int(raw_step.get("value", 0) or 0)
+                except Exception:
+                    value = 0
+                steps.append({"action": action, "value": value, "target": target})
+            if scenario_id and steps:
+                parsed[scenario_id] = steps
+        self.scenario_steps = parsed or self._default_scenarios()
 
     def run(self, settings: ActionSettings, source: str) -> None:
         action = settings.action
@@ -36,11 +83,8 @@ class SystemActions:
         self.status_setter("Uyku komutu gönderildi")
         try:
             ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
-
-            # Birinci yol: doğrudan Windows güç API'siyle uykuya geç.
             result = ctypes.windll.powrprof.SetSuspendState(False, True, False)
             if result == 0:
-                # İkinci yol: API başarısızsa komutu ayrı süreçte gönder.
                 creation_flags = 0x00000008 | 0x00000200 | 0x08000000
                 subprocess.Popen(
                     ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"],
@@ -257,37 +301,19 @@ class SystemActions:
         self._run_powershell(script, "Bluetooth durumu degistirilemedi")
 
     def run_scenario(self, scenario_name: str, source: str) -> None:
-        scenario_steps = {
-            "ders_modu": [
-                ("sesi_sessize_al", ""),
-                ("parlaklik_azalt", "15"),
-                ("tum_pencereleri_kucult", ""),
-            ],
-            "is_modu": [
-                ("wifi_ac", ""),
-                ("parlaklik_arttir", "10"),
-                ("sesi_kis", "4"),
-            ],
-            "oyun_modu": [
-                ("parlaklik_arttir", "20"),
-                ("sesi_ac", "8"),
-            ],
-            "toplanti_modu": [
-                ("sesi_sessize_al", ""),
-                ("parlaklik_arttir", "5"),
-            ],
-            "gece_modu": [
-                ("parlaklik_azalt", "25"),
-                ("sesi_kis", "8"),
-            ],
-        }
-        steps = scenario_steps.get(scenario_name)
+        steps = self.scenario_steps.get(scenario_name)
         if not steps:
             raise RuntimeError(f"Bilinmeyen senaryo: {scenario_name}")
 
         self.logger(f"Senaryo calistiriliyor ({source}): {scenario_name}")
-        for action_name, raw_value in steps:
-            self.execute_named_action(action_name, f"senaryo:{scenario_name}", value=int(raw_value or 0))
+        for step in steps:
+            action_name = str(step.get("action", "")).strip()
+            target = str(step.get("target", "")).strip()
+            try:
+                value = int(step.get("value", 0) or 0)
+            except Exception:
+                value = 0
+            self.execute_named_action(action_name, f"senaryo:{scenario_name}", target=target, value=value)
         self.status_setter(f"Senaryo tamamlandi: {scenario_name}")
 
     def control_named_window(self, action: str, target: str, source: str) -> None:

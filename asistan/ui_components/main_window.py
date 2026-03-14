@@ -342,6 +342,7 @@ class AsistanApp:
         self.log(f"SQLite dosyasi: {self.db_path}")
         if self.state.ui.user_name:
             self.log(f"Hos geldin {self.state.ui.user_name}")
+        self._init_custom_phrases()
         self.refresh_app_list()
         self.refresh_bindings_preview()
 
@@ -515,6 +516,9 @@ class AsistanApp:
 
         self.bindings_tab.set_theme(self.palette)
         self.settings_tab.set_theme(self.palette)
+        self.sistem_kontrol_tab_obj.set_theme(self.palette)
+        self.senaryolar_tab_obj.set_theme(self.palette)
+        self.pencere_tab_obj.set_theme(self.palette)
 
     def _update_action_help(self) -> None:
         action = self._map_key(EYLEM_TURLERI, self.action_var.get().strip(), "uyku")
@@ -604,6 +608,100 @@ class AsistanApp:
             self.store.save_bindings(self.binding_store.all_items())
         except Exception as exc:
             self.log(f"Komut eslemeleri kaydedilemedi: {exc}")
+
+    # ─── Custom phrases / scenario callbacks ─────────────────────────────────
+
+    _SYSTEM_IDS: frozenset[str] = frozenset({
+        "sesi_ac", "sesi_kis", "sesi_sessize_al",
+        "parlaklik_arttir", "parlaklik_azalt",
+        "ekrani_kilitle", "ekran_goruntusu", "cop_kutusu_ac",
+        "wifi_ac", "wifi_kapat", "bluetooth_ac", "bluetooth_kapat",
+    })
+    _WINDOW_IDS: frozenset[str] = frozenset({
+        "aktif_pencere_kucult", "aktif_pencere_buyut",
+        "aktif_pencere_sola_yasla", "aktif_pencere_saga_yasla",
+        "tum_pencereleri_kucult",
+    })
+    _TEST_DEFAULT_VALUES: dict[str, int] = {
+        "sesi_ac": 6, "sesi_kis": 6,
+        "parlaklik_arttir": 15, "parlaklik_azalt": 15,
+    }
+
+    def _init_custom_phrases(self) -> None:
+        phrases = self.store.load_command_phrases()
+        scenarios = self.store.load_scenarios()
+
+        self.sistem_kontrol_tab_obj.load_phrases(
+            {k: v for k, v in phrases.items() if k in self._SYSTEM_IDS}
+        )
+        self.pencere_tab_obj.load_phrases(
+            {k: v for k, v in phrases.items() if k in self._WINDOW_IDS}
+        )
+        self.senaryolar_tab_obj.load_scenarios(scenarios)
+
+        TurkishCommandParser.set_custom_phrases(phrases)
+        TurkishCommandParser.set_custom_scenarios(scenarios)
+        self.actions.update_scenarios(scenarios)
+        self.log(f"Ozel ifadeler yuklendi: {len(phrases)} komut, {len(scenarios)} senaryo")
+
+    def _test_system_action(self, command_id: str) -> None:
+        val = self._TEST_DEFAULT_VALUES.get(command_id, 0)
+        try:
+            self.actions.execute_named_action(command_id, "sistem-test", value=val)
+        except Exception as exc:
+            self.log(f"Test hatasi ({command_id}): {exc}")
+
+    def _save_system_phrases(self, phrases: dict[str, str]) -> None:
+        try:
+            all_phrases = self.store.load_command_phrases()
+            all_phrases.update(phrases)
+            self.store.save_command_phrases(all_phrases)
+            TurkishCommandParser.set_custom_phrases(all_phrases)
+            self.log("Sistem komut ifadeleri kaydedildi")
+            self.sistem_kontrol_tab_obj.set_info("Kaydedildi ✓")
+        except Exception as exc:
+            self.log(f"Sistem ifadesi kayit hatasi: {exc}")
+
+    def _save_scenarios(self, scenarios: list[dict]) -> None:
+        try:
+            self.store.save_scenarios(scenarios)
+            TurkishCommandParser.set_custom_scenarios(scenarios)
+            self.actions.update_scenarios(scenarios)
+            self.log(f"Senaryolar kaydedildi ({len(scenarios)} adet)")
+        except Exception as exc:
+            self.log(f"Senaryo kayit hatasi: {exc}")
+
+    def _test_scenario(self, scenario_id: str) -> None:
+        try:
+            self.actions.run_scenario(scenario_id, "senaryo-test")
+        except Exception as exc:
+            self.log(f"Senaryo test hatasi ({scenario_id}): {exc}")
+
+    def _test_window_action(self, command_id: str) -> None:
+        try:
+            self.actions.execute_named_action(command_id, "pencere-test", value=0)
+        except Exception as exc:
+            self.log(f"Pencere test hatasi ({command_id}): {exc}")
+
+    def _test_named_window_action(self, win_action: str, app_name: str) -> None:
+        if not app_name:
+            self.log("Uygulama adi bos olamaz")
+            return
+        try:
+            self.actions.control_named_window(win_action, app_name, "pencere-test")
+        except Exception as exc:
+            self.log(f"Pencere islemi hatasi ({win_action} -> {app_name}): {exc}")
+
+    def _save_window_phrases(self, phrases: dict[str, str]) -> None:
+        try:
+            all_phrases = self.store.load_command_phrases()
+            all_phrases.update(phrases)
+            self.store.save_command_phrases(all_phrases)
+            TurkishCommandParser.set_custom_phrases(all_phrases)
+            self.log("Pencere komut ifadeleri kaydedildi")
+            self.pencere_tab_obj.set_info("Kaydedildi ✓")
+        except Exception as exc:
+            self.log(f"Pencere ifadesi kayit hatasi: {exc}")
 
     def save_all_to_db(self) -> None:
         self.sync_state()
