@@ -158,10 +158,13 @@ class TurkishCommandParser:
 
     @staticmethod
     def _parse_close_app(value: str) -> str:
-        match = re.search(r"([a-z0-9_.\-']+)\s+(uygulamasini\s+)?kapat", value)
+        # "muzik uygulamasini kapat", "spotify'i kapat", "discord uygulamasini kapat"
+        match = re.search(r"(.+?)\s+kapat", value)
         if not match:
             return ""
-        candidate = TurkishCommandParser._clean_target(match.group(1))
+        candidate = match.group(1).strip()
+        candidate = re.sub(r"\b(uygulamayi|uygulamasini|uygulamasi|programi|programini)\b", "", candidate).strip()
+        candidate = TurkishCommandParser._clean_target(candidate)
         if candidate in {"bilgisayar", "sistem"}:
             return ""
         return candidate
@@ -242,7 +245,14 @@ class TurkishCommandParser:
     @staticmethod
     def _clean_target(target: str) -> str:
         value = target.strip().replace("'", "").replace("’", "")
-        value = re.sub(r"(yi|yu|yı|yü|i|ı|u|ü)$", "", value)
+        # Sondaki Turkce ekleri temizle: spotify'i -> spotify, discord'u -> discord
+        # "...yi" durumunda koku bozmayalim: spotifyi -> spotify (spotif degil)
+        if re.search(r"y[ıiuü]$", value):
+            # Once sadece son unluyu dusurmeyi dene
+            value = re.sub(r"([ıiuü])$", "", value)
+        else:
+            value = re.sub(r"(yi|yu|yı|yü|i|ı|u|ü)$", "", value)
+        value = re.sub(r"\s+", " ", value).strip()
         return value.strip()
 
     @staticmethod

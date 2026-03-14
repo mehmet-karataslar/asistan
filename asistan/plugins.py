@@ -13,6 +13,7 @@ class PluginManager:
 
     def load_all(self) -> list[str]:
         self.plugin_dir.mkdir(parents=True, exist_ok=True)
+        self.plugins.clear()
         loaded: list[str] = []
         for py_file in sorted(self.plugin_dir.glob("*.py")):
             name = f"asistan_plugin_{py_file.stem}"

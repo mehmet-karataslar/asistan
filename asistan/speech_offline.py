@@ -6,6 +6,8 @@ import time
 from dataclasses import replace
 from typing import Callable
 
+import numpy as np
+
 try:
     import sounddevice as sd
 except Exception:
@@ -18,6 +20,7 @@ except Exception:
     Model = None
 
 from .settings import VoiceSettings
+from .audio_filters import is_voice_like_int16
 
 
 class OfflineSpeechEngine:
@@ -65,6 +68,14 @@ class OfflineSpeechEngine:
 
         def callback(indata, frames, time_info, status):
             if status:
+                return
+            signal = np.frombuffer(indata, dtype=np.int16)
+            if not is_voice_like_int16(
+                signal,
+                samplerate,
+                self.settings.min_voice_level,
+                filter_system_audio=self.settings.filter_system_audio,
+            ):
                 return
             recognizer.AcceptWaveform(indata.tobytes())
             result = json.loads(recognizer.Result())

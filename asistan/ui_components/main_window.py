@@ -20,6 +20,7 @@ from ..config.sqlite_store import SQLiteStore
 from ..settings import ActionSettings, AppState, DetectionSettings, UiSettings, VoiceSettings
 from ..speech import VoiceKeywordDetector
 from .bindings_tab import CommandBindingsTab
+from .akilli_ozellikler_tab import AkilliOzelliklerTab
 from .design import THEME_PALETTES
 from .pencere_tab import PencereTab
 from .senaryolar_tab import SenaryolarTab
@@ -82,6 +83,7 @@ class AsistanApp:
         self.vosk_model_path_var = ctk.StringVar(value=self.state.voice.vosk_model_path)
         self.voice_phrase_limit_var = ctk.DoubleVar(value=self.state.voice.phrase_time_limit)
         self.voice_level_var = ctk.StringVar(value=str(self.state.voice.min_voice_level))
+        self.system_audio_filter_var = ctk.StringVar(value="Acik" if self.state.voice.filter_system_audio else "Kapali")
         self.action_var = ctk.StringVar(value="Uyku Moduna Gec")
         self.custom_command_var = ctk.StringVar(value=self.state.action.custom_command)
         self.theme_var = ctk.StringVar(value=self.state.ui.theme)
@@ -136,6 +138,7 @@ class AsistanApp:
         self.tabview.add("Sistem Kontrolu")
         self.tabview.add("Senaryolar")
         self.tabview.add("Pencere Yonetimi")
+        self.tabview.add("Akilli Ozellikler")
         self.tabview.add("Ayarlar")
 
         self.main_tab = self.tabview.tab("Asistan")
@@ -170,6 +173,15 @@ class AsistanApp:
             on_test_action=self._test_window_action,
             on_save=self._save_window_phrases,
             on_named_window_action=self._test_named_window_action,
+        )
+
+        self.akilli_ozellikler_tab = AkilliOzelliklerTab(
+            self.tabview.tab("Akilli Ozellikler"),
+            on_refresh=self._refresh_smart_features_tab,
+            on_add_learned=self._add_learned_command,
+            on_remove_learned=self._remove_learned_command,
+            on_set_routine=self._set_routine_status,
+            on_reload_plugins=self._reload_plugins,
         )
 
     def _build_dashboard_tab(self, parent) -> None:
@@ -317,6 +329,10 @@ class AsistanApp:
         self.voice_level_entry = ctk.CTkEntry(row, textvariable=self.voice_level_var, width=120)
         self.voice_level_entry.pack(side="left")
 
+        row = self._row(parent, "Sistem Sesi Filtresi")
+        self.system_audio_filter_menu = ctk.CTkOptionMenu(row, values=["Acik", "Kapali"], variable=self.system_audio_filter_var)
+        self.system_audio_filter_menu.pack(side="left", fill="x", expand=True)
+
         test_box = ctk.CTkFrame(parent)
         test_box.pack(fill="x", padx=12, pady=(8, 6))
         ctk.CTkLabel(test_box, text="Mikrofon Testi", font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=8, pady=(8, 4))
@@ -398,6 +414,7 @@ class AsistanApp:
             self.vosk_model_path_var,
             self.voice_phrase_limit_var,
             self.voice_level_var,
+            self.system_audio_filter_var,
             self.action_var,
             self.custom_command_var,
             self.theme_var,
@@ -420,6 +437,7 @@ class AsistanApp:
         self._populate_dashboard_content()
         self._init_custom_phrases()
         self._init_learning_and_plugins()
+        self._refresh_smart_features_tab()
         self.refresh_app_list()
         self.refresh_bindings_preview()
 
@@ -461,6 +479,49 @@ class AsistanApp:
         loaded = self.plugin_manager.load_all()
         if loaded:
             self.log(self._style_message(f"Pluginler yuklendi: {', '.join(loaded)}"))
+
+    def _refresh_smart_features_tab(self) -> None:
+        learned = self.store.load_learned_commands()
+        analytics = self.store.load_history_summary(limit=20)
+        routines = self.store.load_routine_suggestions(limit=20)
+        plugins = [getattr(p, "__name__", "plugin") for p in self.plugin_manager.plugins]
+        self.akilli_ozellikler_tab.set_data(
+            learned_commands=learned,
+            analytics=analytics,
+            routines=routines,
+            plugins=plugins,
+        )
+        self.akilli_ozellikler_tab.set_info("Veriler guncellendi")
+
+    def _add_learned_command(self, phrase: str, action: str, target: str, value: int) -> None:
+        if not phrase or not action:
+            self.akilli_ozellikler_tab.set_info("Cumle ve action zorunlu")
+            return
+        self.store.upsert_learned_command(phrase, action, target, value)
+        self.learned_commands[TurkishCommandParser.normalize(phrase)] = (action, target, value)
+        self.akilli_ozellikler_tab.set_info("Ogrenilen komut kaydedildi")
+        self._refresh_smart_features_tab()
+
+    def _remove_learned_command(self, phrase: str) -> None:
+        if not phrase:
+            self.akilli_ozellikler_tab.set_info("Silinecek cumleyi yazin")
+            return
+        deleted = self.store.delete_learned_command(phrase)
+        self.learned_commands.pop(TurkishCommandParser.normalize(phrase), None)
+        self.akilli_ozellikler_tab.set_info("Silindi" if deleted else "Eslesme bulunamadi")
+        self._refresh_smart_features_tab()
+
+    def _set_routine_status(self, suggestion_id: int, accepted: bool) -> None:
+        changed = self.store.set_routine_suggestion_status(suggestion_id, accepted)
+        self.akilli_ozellikler_tab.set_info("Rutin guncellendi" if changed else "ID bulunamadi")
+        self._refresh_smart_features_tab()
+
+    def _reload_plugins(self) -> None:
+        loaded = self.plugin_manager.load_all()
+        self.akilli_ozellikler_tab.set_info(
+            f"Pluginler yuklendi: {', '.join(loaded)}" if loaded else "Plugin bulunamadi"
+        )
+        self._refresh_smart_features_tab()
 
     def _style_message(self, message: str) -> str:
         style = self.state.ui.response_style
@@ -593,6 +654,7 @@ class AsistanApp:
         self.vosk_model_path_var.set(self.state.voice.vosk_model_path)
         self.voice_phrase_limit_var.set(float(self.state.voice.phrase_time_limit))
         self.voice_level_var.set(str(self.state.voice.min_voice_level))
+        self.system_audio_filter_var.set("Acik" if self.state.voice.filter_system_audio else "Kapali")
 
         self.action_var.set(self._map_label(EYLEM_TURLERI, self.state.action.action, "Uyku Moduna Gec"))
         self.custom_command_var.set(self.state.action.custom_command)
@@ -625,6 +687,7 @@ class AsistanApp:
             cooldown=self._to_float(self.cooldown_var.get(), 8.0),
             min_voice_level=max(200, self._to_int(self.voice_level_var.get(), 900)),
             vosk_model_path=self.vosk_model_path_var.get().strip(),
+            filter_system_audio=self.system_audio_filter_var.get().strip().casefold() == "acik",
         )
         self.state.action = ActionSettings(
             action=self._map_key(EYLEM_TURLERI, self.action_var.get().strip(), "uyku"),
@@ -695,6 +758,7 @@ class AsistanApp:
             self.mode_menu,
             self.command_mode_menu,
             self.recognition_engine_menu,
+            self.system_audio_filter_menu,
             self.action_menu,
             self.samplerate_menu,
         ):
@@ -736,6 +800,7 @@ class AsistanApp:
         self.sistem_kontrol_tab_obj.set_theme(self.palette)
         self.senaryolar_tab_obj.set_theme(self.palette)
         self.pencere_tab_obj.set_theme(self.palette)
+        self.akilli_ozellikler_tab.set_theme(self.palette)
 
     def _update_action_help(self) -> None:
         action = self._map_key(EYLEM_TURLERI, self.action_var.get().strip(), "uyku")
@@ -762,6 +827,7 @@ class AsistanApp:
         self.vosk_model_entry.configure(state="normal" if is_voice and is_offline else "disabled")
         self.voice_limit_slider.configure(state=voice_state)
         self.voice_level_entry.configure(state=voice_state)
+        self.system_audio_filter_menu.configure(state=voice_state)
 
         self.threshold_slider.configure(state=clap_state)
         self.required_entry.configure(state=clap_state)

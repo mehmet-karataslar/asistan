@@ -18,6 +18,7 @@ except Exception:
     sr = None
 
 from .settings import VoiceSettings
+from .audio_filters import is_voice_like_int16
 
 
 class OnlineSpeechEngine:
@@ -67,8 +68,12 @@ class OnlineSpeechEngine:
                 if flattened.size == 0:
                     continue
 
-                peak = int(np.max(np.abs(flattened)))
-                if peak < self.settings.min_voice_level:
+                if not is_voice_like_int16(
+                    flattened,
+                    samplerate,
+                    self.settings.min_voice_level,
+                    filter_system_audio=self.settings.filter_system_audio,
+                ):
                     continue
 
                 audio_data = sr.AudioData(flattened.tobytes(), samplerate, 2)

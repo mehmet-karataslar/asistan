@@ -233,9 +233,20 @@ class SystemActions:
         target = min(100, max(10, current + delta))
         script = (
             "$ErrorActionPreference='Stop';"
-            "$methods=Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods;"
-            "if(-not $methods){throw 'Parlaklik denetimi bulunamadi'};"
-            f"foreach($m in $methods){{$null=$m.WmiSetBrightness(1,{target})}}"
+            "$done=$false;"
+            "$methods=Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods -ErrorAction SilentlyContinue;"
+            "if($methods){"
+            f"foreach($m in $methods){{Invoke-CimMethod -InputObject $m -MethodName WmiSetBrightness -Arguments @{{Timeout=1;Brightness={target}}} | Out-Null}};"
+            "$done=$true"
+            "};"
+            "if(-not $done){"
+            "$legacy=Get-WmiObject -Namespace root\\WMI -Class WmiMonitorBrightnessMethods -ErrorAction SilentlyContinue;"
+            "if($legacy){"
+            f"foreach($m in $legacy){{$null=$m.WmiSetBrightness(1,{target})}};"
+            "$done=$true"
+            "}"
+            "};"
+            "if(-not $done){throw 'Parlaklik denetimi bulunamadi'}"
         )
         self._run_powershell(script, "Parlaklik ayarlanamadi")
         self.logger(f"Parlaklik seviyesi: %{target}")

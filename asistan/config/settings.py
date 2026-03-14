@@ -84,6 +84,7 @@ class VoiceSettings:
     cooldown: float = 8.0
     min_voice_level: int = 900
     vosk_model_path: str = ""
+    filter_system_audio: bool = True
 
 
 @dataclass

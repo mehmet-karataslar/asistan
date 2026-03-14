@@ -311,6 +311,12 @@ class SQLiteStore:
             )
             conn.commit()
 
+    def delete_learned_command(self, phrase: str) -> int:
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute("DELETE FROM learned_commands WHERE phrase = ?", (phrase,))
+            conn.commit()
+            return int(cur.rowcount or 0)
+
     def save_history(self, transcript: str, action: str, success: bool, source: str = "") -> None:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
@@ -364,6 +370,15 @@ class SQLiteStore:
             ).fetchall()
         return [(int(i), str(t), bool(a)) for i, t, a in rows]
 
+    def set_routine_suggestion_status(self, suggestion_id: int, accepted: bool) -> int:
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "UPDATE routine_suggestions SET accepted = ? WHERE id = ?",
+                (1 if accepted else 0, int(suggestion_id)),
+            )
+            conn.commit()
+            return int(cur.rowcount or 0)
+
     def _state_to_map(self, state: AppState) -> dict[str, str]:
         return {
             "detection.mode": state.detection.mode,
@@ -385,6 +400,7 @@ class SQLiteStore:
             "voice.cooldown": str(state.voice.cooldown),
             "voice.min_voice_level": str(state.voice.min_voice_level),
             "voice.vosk_model_path": state.voice.vosk_model_path,
+            "voice.filter_system_audio": "1" if state.voice.filter_system_audio else "0",
             "ui.theme": state.ui.theme,
             "ui.user_name": state.ui.user_name,
             "ui.response_style": state.ui.response_style,
@@ -422,6 +438,7 @@ class SQLiteStore:
             cooldown=self._to_float(src.get("voice.cooldown"), defaults.voice.cooldown),
             min_voice_level=self._to_int(src.get("voice.min_voice_level"), defaults.voice.min_voice_level),
             vosk_model_path=src.get("voice.vosk_model_path", defaults.voice.vosk_model_path),
+            filter_system_audio=src.get("voice.filter_system_audio", "1") not in {"0", "false", "False"},
         )
 
         ui = UiSettings(
